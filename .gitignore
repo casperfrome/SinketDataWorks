@@ -1,0 +1,38 @@
+# Dependencies and build output
+node_modules/
+dist/
+target/
+*.tsbuildinfo
+*.class
+
+# Local runtime data, backups, uploads and logs
+/.runtime/
+storage/
+*.log
+*.pid
+
+# Local configuration and credentials (keep templates)
+application-local.properties
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# IDE and operating-system files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

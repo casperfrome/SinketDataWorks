@@ -1,0 +1,12 @@
+# Copy to application-local.properties in this directory.
+# Replace the database password before starting the backend.
+spring.datasource.url=jdbc:mysql://127.0.0.1:3306/fake_dataworks_260927?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+spring.datasource.username=root
+spring.datasource.password=REPLACE_WITH_DATABASE_PASSWORD
+
+# Generate a random 32-byte key and encode it as Base64 (see the root README).
+# Keep the original key when restoring a database with saved data sources.
+studio.datasource.encryption-key=REPLACE_WITH_BASE64_32_BYTE_KEY
+
+# Optional: the separate Dunnelean service used by offline synchronization.
+# studio.sync.service-url=http://127.0.0.1:9876
