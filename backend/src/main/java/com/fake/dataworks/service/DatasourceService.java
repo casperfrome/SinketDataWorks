@@ -112,7 +112,9 @@ public class DatasourceService {
         return metadata(s,"SELECT TABLE_NAME AS name,TABLE_TYPE AS type,TABLE_COMMENT AS comment FROM information_schema.tables WHERE table_schema=? ORDER BY table_name",s.database());
     }
     public List<Map<String,Object>> columns(String id,String table) {
-        var s=get(id);
+        return columns(get(id),table);
+    }
+    public List<Map<String,Object>> columns(ConnectionSpec s,String table) {
         return metadata(s,"SELECT COLUMN_NAME AS name,COLUMN_TYPE AS type,IS_NULLABLE AS nullable,COLUMN_KEY AS columnKey,COLUMN_COMMENT AS comment FROM information_schema.columns WHERE table_schema=? AND table_name=? ORDER BY ordinal_position",s.database(),table);
     }
     private List<Map<String,Object>> metadata(ConnectionSpec s,String sql,String... parameters) {
@@ -150,7 +152,10 @@ public class DatasourceService {
         return "`"+name.replace("`","``")+"`";
     }
     public Map<String,Object> syncMetadata(String id,String table) {
-        var s=get(id);var columns=columns(id,table);if(columns.isEmpty())throw StudioException.bad("TABLE_NOT_FOUND","表不存在或没有可访问字段");
+        return syncMetadata(get(id),table);
+    }
+    public Map<String,Object> syncMetadata(ConnectionSpec s,String table) {
+        var columns=columns(s,table);if(columns.isEmpty())throw StudioException.bad("TABLE_NOT_FOUND","表不存在或没有可访问字段");
         String ddl;
         try(Connection c=open(s,10);Statement stmt=c.createStatement();ResultSet rs=stmt.executeQuery("SHOW CREATE TABLE "+quote(s.database())+"."+quote(table))) {if(!rs.next())throw StudioException.bad("TABLE_NOT_FOUND","表不存在");ddl=rs.getString(2);}
         catch(SQLException e){throw connectionError(e);}
@@ -160,6 +165,11 @@ public class DatasourceService {
             var rows=metadata(s,"SELECT INDEX_NAME AS indexName,COLUMN_NAME AS columnName FROM information_schema.statistics WHERE table_schema=? AND table_name=? AND NON_UNIQUE=0 ORDER BY INDEX_NAME,SEQ_IN_INDEX",s.database(),table);
             var grouped=new LinkedHashMap<String,List<String>>();for(var row:rows)grouped.computeIfAbsent(row.get("indexName").toString(),k->new ArrayList<>()).add(row.get("columnName").toString());keys.addAll(grouped.values());
         }
-        return Map.of("columns",columns,"model",model,"uniqueKeys",keys);
+        var partition=SyncPartitionMetadata.none();
+        if("DORIS".equals(s.type())) {
+            partition=SyncPartitionMetadata.parse(ddl,columns,List.of());
+            if(partition.partitioned())partition=SyncPartitionMetadata.parse(ddl,columns,metadata(s,"SHOW PARTITIONS FROM "+quote(s.database())+"."+quote(table)));
+        }
+        return Map.of("columns",columns,"model",model,"uniqueKeys",keys,"partition",partition.view());
     }
 }

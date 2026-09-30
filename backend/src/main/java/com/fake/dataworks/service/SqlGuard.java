@@ -4,6 +4,7 @@ import com.fake.dataworks.exception.StudioException;
 import java.util.*;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.statement.select.Select;
+import net.sf.jsqlparser.statement.select.TableFunction;
 import net.sf.jsqlparser.expression.Function;
 import net.sf.jsqlparser.util.TablesNamesFinder;
 import org.springframework.stereotype.Component;
@@ -11,6 +12,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class SqlGuard {
     public void validate(String sql,String database) {
+        validate(sql,database,false);
+    }
+    public void validateDoris(String sql,String database) {
+        validate(sql,database,true);
+    }
+    private void validate(String sql,String database,boolean doris) {
         if(sql==null||sql.isBlank()||sql.length()>200_000) fail("请输入不超过 200000 字符的查询");
         if(!SqlParameters.extract(sql).isEmpty()) fail("SQL 参数尚未编译");
         String tokens=codeOnly(sql).toUpperCase(Locale.ROOT);
@@ -19,6 +26,10 @@ public class SqlGuard {
             var statements=CCJSqlParserUtil.parseStatements(sql,p -> p.withTimeOut(2000).withAllowComplexParsing(true).withBackslashEscapeCharacter(true));
             if(statements.size()!=1||!(statements.get(0) instanceof Select)) fail("仅允许一条 SELECT / WITH 查询");
             var finder=new TablesNamesFinder<Void>() {
+                @Override public <S> Void visit(TableFunction function,S context) {
+                    if(doris)fail("不支持外部或系统表函数，只能查询当前数据源配置的业务库");
+                    return super.visit(function,context);
+                }
                 @Override public <S> Void visit(Function function,S context) {
                     String name=function.getName().replace("`","").replace("\"","").toUpperCase(Locale.ROOT);
                     if(function.getMultipartName().size()>1||Set.of("LOAD_FILE","GET_LOCK","RELEASE_LOCK","RELEASE_ALL_LOCKS","LAST_INSERT_ID").contains(name)) fail("不支持文件、会话或存储函数调用");

@@ -17,6 +17,7 @@ import net.sf.jsqlparser.statement.create.view.CreateView;
 import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.insert.Insert;
 import net.sf.jsqlparser.statement.select.Select;
+import net.sf.jsqlparser.statement.select.TableFunction;
 import net.sf.jsqlparser.statement.truncate.Truncate;
 import net.sf.jsqlparser.statement.update.Update;
 import net.sf.jsqlparser.statement.upsert.Upsert;
@@ -34,10 +35,14 @@ public record SqlScript(List<Command> commands) {
     private static final Set<String> FORBIDDEN=Set.of("OUTFILE","DUMPFILE","LOAD_FILE","GET_LOCK","RELEASE_LOCK","RELEASE_ALL_LOCKS","LAST_INSERT_ID","PROCEDURE","DEFINER","TABLESPACE","DIRECTORY","CONNECTION");
 
     public static SqlScript prepare(String input, String database, SqlGuard queryGuard) {
+        return prepare(input,database,queryGuard,"MYSQL");
+    }
+    public static SqlScript prepare(String input, String database, SqlGuard queryGuard,String dialect) {
+        if(!Set.of("MYSQL","DORIS").contains(dialect))fail("不支持的数据源 SQL 方言");
         var commands=new ArrayList<Command>();
         for(String sql:split(input)) {
             var bound=SqlParameters.compile(sql);
-            commands.add(new Command(bound,validate(bound.sql(),database,queryGuard)));
+            commands.add(new Command(bound,"DORIS".equals(dialect)?DorisSqlValidator.validate(bound.sql(),database,queryGuard):validate(bound.sql(),database,queryGuard)));
         }
         return new SqlScript(List.copyOf(commands));
     }
@@ -73,7 +78,10 @@ public record SqlScript(List<Command> commands) {
         if(!text.toString().isBlank())statements.add(text.toString().strip());text.setLength(0);
     }
 
-    private static String validate(String sql,String database,SqlGuard queryGuard) {
+    static String validate(String sql,String database,SqlGuard queryGuard) {
+        return validate(sql,database,queryGuard,false);
+    }
+    static String validate(String sql,String database,SqlGuard queryGuard,boolean doris) {
         // Literals are excluded, quoted identifiers included. This also covers DDL expressions
         // that TablesNamesFinder does not visit, such as generated-column definitions.
         String code=sql.replaceAll("'(?:(?:'')|(?:\\\\.)|[^'\\\\])*'|\"(?:(?:\"\")|(?:\\\\.)|[^\"\\\\])*\""," ").replace("`","");
@@ -89,7 +97,7 @@ public record SqlScript(List<Command> commands) {
         if(drop.matches()) {var names=Pattern.compile(TABLE).matcher(drop.group(1));while(names.find())checkName(names.group(),database);return "DDL";}
         try {
             Statement statement=CCJSqlParserUtil.parse(sql,p->p.withTimeOut(2000).withAllowComplexParsing(true).withBackslashEscapeCharacter(true));
-            if(statement instanceof Select) {queryGuard.validate(sql,database);return "QUERY";}
+            if(statement instanceof Select) {if(doris)queryGuard.validateDoris(sql,database);else queryGuard.validate(sql,database);return "QUERY";}
             boolean dml=statement instanceof Insert||statement instanceof Update||statement instanceof Delete||statement instanceof Upsert;
             boolean ddl=statement instanceof CreateTable||statement instanceof Alter||statement instanceof RenameTableStatement||statement instanceof Truncate||statement instanceof CreateIndex||statement instanceof CreateView||statement instanceof AlterView;
             if(!dml&&!ddl)fail("仅支持查询、增删改，以及表、索引和视图的结构操作");
@@ -102,6 +110,10 @@ public record SqlScript(List<Command> commands) {
                 while(qualifiedCalls.find())checkName(qualifiedCalls.group(1),database);
             }
             var finder=new TablesNamesFinder<Void>() {
+                @Override public <S> Void visit(TableFunction function,S context) {
+                    if(doris)fail("不支持外部或系统表函数，只能操作当前数据源配置的业务库");
+                    return super.visit(function,context);
+                }
                 @Override public <S> Void visit(Function function,S context) {
                     String name=function.getName().replace("`","").replace("\"","").toUpperCase(Locale.ROOT);
                     if(function.getMultipartName().size()>1||FORBIDDEN.contains(name))fail("不支持文件、会话或存储函数调用");

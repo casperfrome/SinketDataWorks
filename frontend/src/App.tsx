@@ -1,4 +1,5 @@
 import DatasourceBinding from "./components/DatasourceBinding";
+import { schemaLabel } from "./state/sync";
 import RecycleView from "./components/RecycleView";
 import type { DataSource } from "./types";
 import { defaultSchedule } from "./state/schedules";
@@ -105,7 +106,7 @@ import RunDetails from "./components/RunDetails";
 import WorkflowReleases from "./components/WorkflowReleases";
 import BusinessDateInput from "./components/BusinessDateInput";
 import { yesterday } from "./state/schedules";
-import { captureWorkflowSubmission, saveWorkflowSubmission, isRealWorkflow, runLabel, statusNames } from "./state/workflows";
+import { captureWorkflowSubmission, saveWorkflowSubmission, isRealWorkflow, isRealTask, sqlProvider, runLabel, statusNames } from "./state/workflows";
 import { nodeTypes, defaultContent } from "./data/nodeTypes";
 import {
   settleSavedDraft,
@@ -322,9 +323,9 @@ function Studio({
   const [creationSourceError, setCreationSourceError] = useState("");
   useEffect(() => {
     let alive = true;
-    if (!createSpec || createSpec.nodeType !== "MySQL") return;
-    setCreationSources([]); setCreationSourceError("");
-    void api.datasources(workspaceId).then(items => { if (alive) { items=items.filter(s=>!s.type||s.type==="MYSQL"); setCreationSources(items); if (items.length === 1) createForm.setFieldValue("dataSourceId", items[0].id); } }).catch(e => { if (alive) setCreationSourceError(e.message); });
+    if (!createSpec || !["MySQL", "Doris"].includes(createSpec.nodeType)) return;
+    setCreationSources([]); setCreationSourceError(""); createForm.setFieldValue("dataSourceId", undefined);
+    void api.datasources(workspaceId).then(items => { if (alive) { items=items.filter(s=>(s.type||"MYSQL")===sqlProvider(createSpec.nodeType)); setCreationSources(items); if (items.length === 1) createForm.setFieldValue("dataSourceId", items[0].id); } }).catch(e => { if (alive) setCreationSourceError(e.message); });
     return () => { alive = false; };
   }, [workspaceId, createSpec?.nodeType]);
   const initialized = useRef(false),
@@ -338,7 +339,7 @@ function Studio({
   widRef.current = workspaceId;
   const current = objects.find((o) => o.id === activeId);
   const active = activeId ? drafts[activeId] || current : undefined;
-  const realTask=active?.kind==="NODE"&&["MYSQL","SYNC"].includes(active.config.run?.provider);
+  const realTask=isRealTask(active);
   useEffect(()=>{let alive=true;if(releaseOpen&&realTask){setTaskReleaseHistory([]);void api.taskReleases(activeId).then(r=>{if(alive)setTaskReleaseHistory(r);}).catch(e=>message.error(errorText(e)));}return ()=>{alive=false;};},[releaseOpen,realTask,activeId]);
   const dirty = !!drafts[activeId] || !!scheduleDrafts[activeId];
   const workspace = workspaces.find((w) => w.id === workspaceId);
@@ -626,7 +627,7 @@ function Studio({
   const formatCurrent = () => {
     if (!active) return;
     try {
-      if (/SQL|MySQL|Hive|PostgreSQL|Oracle/i.test(active.nodeType)) {
+      if (/SQL|MySQL|Doris|Hive|PostgreSQL|Oracle/i.test(active.nodeType)) {
         change({
           content: formatSQL(active.content, {
             language: "sql",
@@ -649,7 +650,7 @@ function Studio({
     try {
       const saved = await saveCurrent(false);
       if (!saved) return;
-      if(saved.kind==="NODE"&&["MYSQL","SYNC"].includes(saved.config.run?.provider)){const release=await api.publishTask(saved.id,saved.version,releaseNote);message.success(`已发布任务 R${release.releaseNo}`);setReleaseOpen(false);setReleaseNote("");return;}
+      if(isRealTask(saved)){const release=await api.publishTask(saved.id,saved.version,releaseNote);message.success(`已发布任务 R${release.releaseNo}`);setReleaseOpen(false);setReleaseNote("");return;}
       await api.record({
         workspaceId,
         objectId: saved.id,
@@ -730,7 +731,7 @@ function Studio({
           dependencies: [],
         },
       };
-      if (createSpec.kind === "NODE" && createSpec.nodeType === "MySQL") cfg.run = { provider: "MYSQL", dataSourceId: values.dataSourceId, executionMode: "QUERY", timeoutSeconds: 30 };
+      if (createSpec.kind === "NODE" && ["MySQL", "Doris"].includes(createSpec.nodeType)) cfg.run = { provider: sqlProvider(createSpec.nodeType), dataSourceId: values.dataSourceId, executionMode: "QUERY", timeoutSeconds: 30 };
       if (createSpec.kind === "NODE" && ["离线同步","数据集成"].includes(createSpec.nodeType)) {cfg.run={provider:"SYNC"};cfg.sync={writeMode:"append",columns:[],mapping:[],batchRows:10000,timeoutSeconds:3600,parallelism:1};}
       if (createSpec.kind === "WORKFLOW") { cfg.graph = { nodes: [], edges: [] }; cfg.run = { provider: "WORKFLOW" }; }
       if (createSpec.kind === "NOTEBOOK") cfg.cells = [];
@@ -1575,7 +1576,7 @@ function Studio({
                         },
                         { key: "share", label: "分享开发对象" },
                         { type: "divider" },
-                        { key: "fail", label: "模拟失败运行", disabled: ["MYSQL", "SYNC", "WORKFLOW"].includes(active.config?.run?.provider) },
+                        { key: "fail", label: "模拟失败运行", disabled: ["MYSQL", "DORIS", "SYNC", "WORKFLOW"].includes(active.config?.run?.provider) },
                       ],
                       onClick: ({ key }) => {
                         if (key === "release") openPublication();
@@ -1590,7 +1591,7 @@ function Studio({
                     </button>
                   </Dropdown>
                 </div>
-                {active.kind === "NODE" && active.nodeType === "MySQL" && <DatasourceBinding key={active.id} object={active} onChange={change} onManage={() => setActivity("datasources")} />}
+                {active.kind === "NODE" && ["MySQL", "Doris"].includes(active.nodeType) && <DatasourceBinding key={active.id} object={active} onChange={change} onManage={() => setActivity("datasources")} />}
                 <div className="editor-content">
                   <div className="editor-surface">
                     {active.kind === "FOLDER" ? (
@@ -1831,7 +1832,7 @@ function Studio({
         <span>LF</span>
         <span className="status-hide-small">
           <Check size={12} />
-          {isRealWorkflow(active) ? "真实工作流 · 可发布调度" : active?.config?.run?.provider === "SYNC" ? "离线同步 · 可发布调度" : active?.config?.run?.provider === "MYSQL" ? (active.config.run.executionMode === "MATERIALIZE" ? "MySQL 库存落表" : "MySQL SQL 执行") : "本地模拟"}
+          {isRealWorkflow(active) ? "真实工作流 · 可发布调度" : active?.config?.run?.provider === "SYNC" ? "数据集成 · 可发布调度" : active?.config?.run?.provider === "DORIS" ? "Doris SQL 执行" : active?.config?.run?.provider === "MYSQL" ? (active.config.run.executionMode === "MATERIALIZE" ? "MySQL 库存落表" : "MySQL SQL 执行") : "本地模拟"}
         </span>
         <Tool
           label="打开通知"
@@ -1967,7 +1968,7 @@ function Studio({
               </Button>
             )}
           </div>
-          {createSpec?.kind === "NODE" && createSpec.nodeType === "MySQL" && <Form.Item name="dataSourceId" label="数据源" rules={[{required:true,message:"请选择 MySQL 数据源"}]} extra={creationSourceError || (!creationSources.length && <Button type="link" size="small" onClick={() => { setCreateSpec(null); setPalette(false); setActivity("datasources"); }}>添加数据源</Button>)}><Select aria-label="新建节点数据源" placeholder="选择 MySQL 连接" options={creationSources.map(source => ({value:source.id,label:`${source.name} · ${source.database}`}))} /></Form.Item>}
+          {createSpec?.kind === "NODE" && ["MySQL", "Doris"].includes(createSpec.nodeType) && <Form.Item name="dataSourceId" label="数据源" rules={[{required:true,message:`请选择 ${createSpec.nodeType} Schema`}]} extra={creationSourceError || (!creationSources.length && <Button type="link" size="small" onClick={() => { setCreateSpec(null); setPalette(false); setActivity("datasources"); }}>添加数据源</Button>)}><Select aria-label="新建节点数据源" placeholder={`选择 ${createSpec.nodeType} Schema`} options={creationSources.map(source => ({value:source.id,label:schemaLabel(source)}))} /></Form.Item>}
           {createSpec?.kind === "WORKFLOW" && (
             <Form.Item label="工作流类型">
               <Select
@@ -2116,7 +2117,7 @@ function Studio({
           <Tag color="blue">SinketDataWorks · 本地项目</Tag>
           <h3>从一个开发节点开始</h3>
           <p>
-            在项目目录选择节点类型并新建文件。MySQL 节点可执行 SQL；离线同步节点选择来源和目标后可在 MySQL 与 Doris 之间批量传输。调度参数在右侧配置，发布后可选择版本并应用到调度。
+            在项目目录选择节点类型并新建文件。MySQL、Doris 节点可执行 SQL；数据集成节点选择来源和目标后可在 MySQL 与 Doris 之间批量传输。调度参数在右侧配置，发布后可选择版本并应用到调度。
           </p>
           <table>
             <tbody>
@@ -2139,7 +2140,7 @@ function Studio({
           </table>
           <p>
             元数据存储于
-            MySQL。MySQL 节点支持真实 SQL 读写与表结构操作；离线同步支持 MySQL ↔ Doris 批量传输、发布与调度，其他引擎维持本地模拟。
+            MySQL。MySQL、Doris 节点支持真实 SQL 读写与表结构操作；数据集成支持 MySQL ↔ Doris 批量传输、发布与调度。
           </p>
         </div>
       </Modal>

@@ -7,6 +7,7 @@ import type { ParameterPreview, ScheduleConfig, ScheduleParameter, StudioObject 
 import { mergeCodeParameters, parameterError, parameterExpression, parseParameterExpression } from "../state/parameters";
 import { defaultSchedule, yesterday } from "../state/schedules";
 import BusinessDateInput from "./BusinessDateInput";
+import { parameterText } from "../state/sync";
 import "../scheduling.css";
 
 export interface ParameterEditorProps {
@@ -44,7 +45,7 @@ export default function ScheduleParameterEditor({ object, onChange, config }: Pa
   const loadCode = async () => {
     setBusy(true); setError("");
     try {
-      const names = await api.extractParameters((object.config.run?.provider==="SYNC" ? object.config.sync?.where||"" : object.content));
+      const names = await api.extractParameters(parameterText(object));
       const current = latest.current;
       if (current.object.id !== object.id) return;
       current.onChange({config:{...current.object.config,schedule:{...current.object.config.schedule,parameters:mergeCodeParameters(current.rows,names),parameterExpressionDraft:undefined}}});
@@ -72,7 +73,7 @@ export default function ScheduleParameterEditor({ object, onChange, config }: Pa
     try {
       const values = expressionMode ? parseParameterExpression(text, rows) : rows;
       const invalid = parameterError(values); if (invalid) throw new Error(invalid);
-      setPreview(await api.previewParameters({ ...timeConfig, parameters: values, code: (object.config.run?.provider==="SYNC" ? object.config.sync?.where||"" : object.content), businessDate: day, count }));
+      setPreview(await api.previewParameters({ ...timeConfig, parameters: values, code: parameterText(object), businessDate: day, count }));
     } catch (e) { setPreviewError((e as Error).message); }
     finally { setBusy(false); }
   };

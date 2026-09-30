@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { StudioObject } from "../src/types.ts";
-import { captureWorkflowSubmission, saveWorkflowSubmission, runLabel, sourceLabel } from "../src/state/workflows.ts";
+import { captureWorkflowSubmission, saveWorkflowSubmission, runLabel, sourceLabel, isRealTask, isSqlTask } from "../src/state/workflows.ts";
 import { settleSavedDraft } from "../src/state/drafts.ts";
 
 const node = (id: string): StudioObject => ({ id, workspaceId: "w", parentId: null, kind: "NODE", nodeType: "MySQL", name: id, content: "SELECT 1", description: "", config: { run: { provider: "MYSQL" } }, tags: [], favorite: false, deleted: false, version: 1, owner: "local", updatedAt: "now" });
@@ -46,4 +46,14 @@ test("release and development labels are distinct from provider labels", () => {
   assert.equal(runLabel({ provider: "WORKFLOW", simulation: false } as any), "真实工作流");
   assert.equal(sourceLabel({ executionSource: "RELEASE", releaseNo: 3 } as any), "已发布版本 R3");
   assert.equal(sourceLabel({ executionSource: "DEVELOPMENT" } as any), "开发调试");
+  assert.equal(runLabel({ provider: "DORIS", simulation: false } as any), "真实 Doris");
+});
+
+test("Doris SQL participates in workflow submission and rejects a mismatched provider", () => {
+  const doris: StudioObject = { ...node("doris"), nodeType: "Doris", config: { run: { provider: "DORIS" } } };
+  const w = workflow([doris.id]);
+  assert.equal(isSqlTask(doris), true);
+  assert.equal(isRealTask(doris), true);
+  assert.deepEqual(captureWorkflowSubmission(w.id, [w, doris], {}).nodes, [doris]);
+  assert.throws(() => captureWorkflowSubmission(w.id, [w, { ...doris, config: { run: { provider: "MYSQL" } } }], {}), /必须绑定/);
 });

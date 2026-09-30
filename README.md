@@ -5,12 +5,12 @@
 ## 功能
 
 - **数据开发**：项目与个人目录、SQL / Notebook / 工作流编辑、多标签、草稿保护、版本对比与恢复。
-- **真实 MySQL 执行**：查询、增删改、多语句 SQL、表结构操作、结果分页及取消。
+- **真实 MySQL / Doris 执行**：查询、增删改、多语句 SQL、表结构及分区操作、结果分页及取消。
 - **发布与调度**：任务和工作流的不可变发布版本、业务日期参数、Cron、上游依赖与运行历史。
-- **离线同步**：通过 Dunnelean Java SDK 控制独立 Rust 服务，实现 MySQL ↔ Doris 批量传输，支持追加、主键更新、清空后覆盖。
+- **数据集成**：MySQL ↔ Doris 批量传输，支持分区筛选、参数或字段分区赋值，以及限定分区覆盖。
 - **数据源与回收站**：连接测试、真实表与字段浏览、密码加密保存、目录与文件恢复。
 
-MySQL 与离线同步节点执行真实业务操作；其他引擎、Python、Shell 和 Notebook 运行仍使用本地模拟。
+节点库只提供“数据集成”类别的数据集成，以及“数据库”类别的 MySQL、Doris，均支持真实业务执行；其他空类别已移除。已有其他类型节点保留兼容，运行仍使用本地模拟。
 
 ## 界面预览
 
@@ -34,6 +34,7 @@ MySQL 与离线同步节点执行真实业务操作；其他引擎、Python、Sh
 | 前端 | Node.js 24、React 19、TypeScript 5.9、Vite 7、Ant Design 6、Monaco Editor、React Flow |
 | 后端 | JDK 25、Maven 3.9+、Spring Boot 4.1.1、Spring JDBC、Flyway |
 | 元数据库 | MySQL，已验证环境为 9.7.2，字符集 `utf8mb4` |
+| 可选 Doris SQL | Doris，通过 JDBC 连接业务 schema，无需启动 Dunnelean 服务 |
 | 可选离线同步 | Dunnelean Java SDK 0.1.0、独立 Dunnelean Rust 服务、MySQL 与 Doris |
 | 辅助脚本 | PowerShell；同步验收另外需要 Python 和 `pymysql`、`requests`、`psutil` |
 
@@ -119,6 +120,14 @@ npm.cmd run dev -- --port 5173 --strictPort
 3. 在右侧配置调度参数，预览业务日期后运行；发布任务并应用到调度后，可启用计划。
 4. 新建工作流，添加任务与依赖，查看各节点结果；通过版本面板或回收站恢复内容。
 
+MySQL/Doris 节点按已注册连接的 schema 名选择对应类型的数据源，同名 schema 通过类型和连接名称区分。Doris 节点可直接执行受支持的 SQL。订单分区示例准备命令：
+
+```powershell
+& D:\PythonVenv\Scripts\python.exe ./scripts/init-doris-orders.py
+```
+
+该脚本创建 DATE `ds` 每日 AUTO RANGE 空表 `test_ods.ods_orders_di`、加密业务连接和未发布的 `orders_to_ods_orders_di` 示例，不执行同步；初始化成功时数据行数和物理分区数均为 0。`partition.retention_count=400` 保留历史分区，当前及未来分区另行保留。字段路由支持追加；覆盖时须明确选择已有物理分区。详见[订单分区同步](docs/offline-sync.md#分区读写与订单示例)及 [Doris SQL](docs/doris-query.md)。
+
 常用快捷键：`Ctrl+S` 保存、`F8` 运行、`F9` 停止、`Shift+Alt+F` 格式化。未保存草稿仅保留在当前前端会话中，刷新或关闭浏览器前应先保存。
 
 ## 开发与检查
@@ -158,6 +167,7 @@ backend/storage/   默认上传资源目录（忽略）
 - [MySQL 查询与写入](docs/mysql-query.md) · [工作流执行与发布](docs/workflow-execution.md)
 - [调度参数](docs/schedule-parameters.md) · [任务调度](docs/task-scheduling.md) · [库存日结与调度](docs/inventory-scheduling.md)
 - [MySQL ↔ Doris 离线同步](docs/offline-sync.md)
+- [Doris SQL 真实执行](docs/doris-query.md)
 
 ## 运行与数据边界
 

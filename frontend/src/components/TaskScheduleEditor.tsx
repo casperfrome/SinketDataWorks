@@ -5,6 +5,7 @@ import { Alert, App, Button, Empty, Form, Input, InputNumber, Radio, Select, Spa
 import { api } from "../api";
 import type { Run, ScheduleConfig, TaskPreview, TaskRelease, TaskSchedule, TaskScheduleDraft, TaskDependency, StudioObject } from "../types";
 import { cycleCron, cronFields, defaultSchedule, yesterday, reasonNames, type CycleFields } from "../state/schedules";
+import { isRealTask } from "../state/workflows";
 import "../scheduling.css";
 
 const sections = ["调度参数", "调度策略", "调度时间", "调度依赖"];
@@ -88,7 +89,7 @@ export default function TaskScheduleEditor({ object, objects, onObjectChange, on
       </section>
       <section ref={el=>{refs.current[3]=el;}} className="schedule-section"><h3>调度依赖</h3>
         <p>等待所有上游对应期次成功，再运行当前任务。</p>
-        <Select<string> aria-label="添加上游任务" showSearch optionFilterProp="label" value={undefined} placeholder="搜索并添加上游任务" style={{width:"100%"}} options={objects.filter(o=>o.kind==="NODE"&&["MYSQL","SYNC"].includes(o.config.run?.provider)&&o.id!==taskId&&!dependencies.some(d=>d.taskId===o.id)).map(o=>({value:o.id,label:o.name}))} onChange={id=>{const o=objects.find(x=>x.id===id)!;const used=new Set(dependencies.map(d=>d.alias));let alias=o.name.split("_")[0].replace(/[^A-Za-z0-9_]/g,"")||"source";if(!/^[A-Za-z]/.test(alias))alias="source";const base=alias;let i=2;while(used.has(alias))alias=base+i++;setDependencies([...dependencies,{taskId:id,name:o.name,alias}]);setPreview([]);}} />
+        <Select<string> aria-label="添加上游任务" showSearch optionFilterProp="label" value={undefined} placeholder="搜索并添加上游任务" style={{width:"100%"}} options={objects.filter(o=>isRealTask(o)&&o.id!==taskId&&!dependencies.some(d=>d.taskId===o.id)).map(o=>({value:o.id,label:o.name}))} onChange={id=>{const o=objects.find(x=>x.id===id)!;const used=new Set(dependencies.map(d=>d.alias));let alias=o.name.split("_")[0].replace(/[^A-Za-z0-9_]/g,"")||"source";if(!/^[A-Za-z]/.test(alias))alias="source";const base=alias;let i=2;while(used.has(alias))alias=base+i++;setDependencies([...dependencies,{taskId:id,name:o.name,alias}]);setPreview([]);}} />
         {dependencies.map((d,index)=><div className="task-dependency-row" key={d.taskId}><div className="task-dependency-heading"><strong>{objects.find(o=>o.id===d.taskId)?.name||d.name||d.taskId}</strong><Button type="text" size="small" danger onClick={()=>{setDependencies(dependencies.filter(x=>x.taskId!==d.taskId));setPreview([]);}}>移除</Button></div><p className="panel-muted">{plans.find(p=>p.taskId===d.taskId)?.cron||"尚未配置调度"}</p><Form.Item label="参数别名"><Input aria-label={`上游参数别名 ${index+1}`} value={d.alias} maxLength={32} onChange={e=>{setDependencies(dependencies.map(x=>x.taskId===d.taskId?{...x,alias:e.target.value}:x));setPreview([]);}} /></Form.Item><code>:upstream_{d.alias}_build_id</code></div>)}
         {!dependencies.length&&<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无上游依赖，到达计划时间即可运行" />}
         <p className="panel-muted">匹配同一业务日期、截至本任务计划时间最近一期的上游。上游失败、漏跑或取消会阻断本期；不会改用更早的成功结果。可配置不同执行频率。</p>

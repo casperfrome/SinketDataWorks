@@ -66,7 +66,7 @@ public class WorkflowService {
     private void validateWorkflow(StudioObject workflow) {
         if(!"WORKFLOW".equals(workflow.kind())||!isWorkflow(workflow)) throw StudioException.bad("WORKFLOW_REQUIRED","请选择真实工作流执行方式");
         graphs.validate(workflow.config());
-        if(graph(workflow)==null||graphItems(workflow,"nodes").isEmpty()) throw StudioException.bad("EMPTY_WORKFLOW","工作流至少需要一个已绑定的 MySQL 节点");
+        if(graph(workflow)==null||graphItems(workflow,"nodes").isEmpty()) throw StudioException.bad("EMPTY_WORKFLOW","工作流至少需要一个已绑定的 MySQL、Doris 或离线同步节点");
         if(graphItems(workflow,"nodes").size()>maxNodes) throw StudioException.bad("WORKFLOW_TOO_LARGE","工作流最多包含 "+maxNodes+" 个节点");
         for(var node:graphItems(workflow,"nodes")) if(Objects.toString(node.get("id"),"").length()>64) throw StudioException.bad("INVALID_GRAPH","图节点 ID 不能超过 64 个字符");
     }
@@ -101,7 +101,7 @@ public class WorkflowService {
                 var binding=bundle.datasourceBindings().stream().filter(b->sourceId.equals(b.get("id"))).findFirst()
                     .orElseThrow(()->StudioException.bad("INVALID_RELEASE","发布包缺少数据源绑定"));
                 var current=source.publicView();
-                for(String key:List.of("workspaceId","host","port","database","username")) {
+                for(String key:List.of("workspaceId","type","host","port","database","username","options")) {
                     Object before=binding.get(key),now=current.get(key);
                     boolean same=before instanceof Number a&&now instanceof Number b?a.doubleValue()==b.doubleValue():Objects.equals(before,now);
                     if(!same) throw StudioException.conflict("DATASOURCE_BINDING_CHANGED","发布时的数据源目标已变化，请恢复原连接或发布新版本");

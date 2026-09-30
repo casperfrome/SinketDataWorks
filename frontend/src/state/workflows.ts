@@ -1,8 +1,11 @@
 import type { Run, StudioObject, WorkflowGraph } from "../types.ts";
 
 export const isRealWorkflow = (object?: StudioObject) => object?.kind === "WORKFLOW" && object.config.run?.provider === "WORKFLOW";
+export const sqlProvider = (nodeType: string) => nodeType === "Doris" ? "DORIS" : "MYSQL";
+export const isSqlTask = (object?: StudioObject) => object?.kind === "NODE" && ["MySQL", "Doris"].includes(object.nodeType) && object.config.run?.provider === sqlProvider(object.nodeType);
+export const isRealTask = (object?: StudioObject) => isSqlTask(object) || (object?.kind === "NODE" && ["离线同步", "数据集成"].includes(object.nodeType) && object.config.run?.provider === "SYNC");
 export const isPending = (run: Run) => ["WAITING", "QUEUED", "RUNNING", "RECOVERING"].includes(run.status);
-export const runLabel = (run: Run) => run.simulation ? "本地模拟" : run.provider === "SYNC" ? "离线批量同步" : run.materialization ? (run.provider==="WORKFLOW"?"库存落表工作流":"库存落表任务") : run.executionMode === "MATERIALIZE" ? "MySQL 落表" : run.provider === "WORKFLOW" ? "真实工作流" : "真实 MySQL";
+export const runLabel = (run: Run) => run.simulation ? "本地模拟" : run.provider === "SYNC" ? "数据集成" : run.materialization ? (run.provider==="WORKFLOW"?"库存落表工作流":"库存落表任务") : run.executionMode === "MATERIALIZE" ? "MySQL 落表" : run.provider === "WORKFLOW" ? "真实工作流" : run.provider === "DORIS" ? "真实 Doris" : "真实 MySQL";
 export const sourceLabel = (run: Run) => `${run.triggerType === "SCHEDULED" ? "定时调度 · " : run.triggerType === "RERUN" ? "历史重跑 · " : ""}${run.executionSource === "RELEASE" ? `已发布版本 R${run.releaseNo}` : run.executionSource === "DEVELOPMENT" ? "开发调试" : "—"}`;
 export const statusNames: Record<Run["status"], string> = { WAITING: "等待依赖", QUEUED: "排队中", RUNNING: "运行中", SUCCESS: "成功", FAILED: "失败", CANCELLED: "已停止", SKIPPED: "已跳过", RECOVERING: "核实提交中" };
 
@@ -17,13 +20,13 @@ export function captureWorkflowSubmission(id: string, objects: StudioObject[], d
   const workflow = drafts[id] || byId.get(id);
   if (!workflow || !isRealWorkflow(workflow)) throw new Error("请选择真实工作流执行方式");
   const graph = workflow.config.graph as WorkflowGraph | undefined;
-  if (!graph?.nodes?.length) throw new Error("请先导入至少一个真实 MySQL 或离线同步节点");
+  if (!graph?.nodes?.length) throw new Error("请先导入至少一个 MySQL、Doris 或数据集成节点");
   const nodes: StudioObject[] = [];
   const seen = new Set<string>();
   for (const item of graph.nodes) {
     const node = item.objectId && (drafts[item.objectId] || byId.get(item.objectId));
     if (!node || node.deleted) throw new Error(`「${item.label}」未绑定有效节点，请从已有节点导入`);
-    if (node.workspaceId !== workflow.workspaceId || node.kind !== "NODE" || !((node.nodeType==="MySQL"&&node.config.run?.provider==="MYSQL")||(["离线同步","数据集成"].includes(node.nodeType)&&node.config.run?.provider==="SYNC"))) throw new Error(`「${item.label}」必须绑定本空间的真实 MySQL 或离线同步节点`);
+    if (node.workspaceId !== workflow.workspaceId || !isRealTask(node)) throw new Error(`「${item.label}」必须绑定本空间的 MySQL、Doris 或数据集成节点`);
     if (!seen.has(node.id)) { seen.add(node.id); nodes.push(node); }
   }
   return { workflow, nodes, dirtyIds: new Set([workflow, ...nodes].filter(object => !!drafts[object.id]).map(object => object.id)) };

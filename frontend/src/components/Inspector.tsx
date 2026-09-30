@@ -8,6 +8,7 @@ import { DiffEditor } from "@monaco-editor/react";
 import { History, RotateCcw, GitCompareArrows } from "lucide-react";
 import { api } from "../api";
 import { getNodeType } from "../data/nodeTypes";
+import { isRealTask } from "../state/workflows";
 import "../panels.css";
 
 interface InspectorProps {
@@ -42,8 +43,8 @@ export default function Inspector({ object, section, onChange, onRestored, objec
   });
   return (<div className="studio-inspector">
       {section === "schedule" && run.provider === "WORKFLOW" && <ScheduleEditor key={object.id} object={object} onObjectChange={onChange} onSaveObject={onSaveObject} onRun={onRun} />}
-      {section === "schedule" && ["MYSQL","SYNC"].includes(run.provider) && <TaskScheduleEditor key={`${object.id}/${scheduleRevision}`} object={object} objects={objects} onObjectChange={onChange} onSaveObject={onSaveObject} draft={scheduleDraft} onDraftChange={onScheduleDraft} onRun={onRun} onPublish={onPublishTask} />}
-      {section === "schedule" && !["WORKFLOW", "MYSQL", "SYNC"].includes(run.provider) && (
+      {section === "schedule" && isRealTask(object) && <TaskScheduleEditor key={`${object.id}/${scheduleRevision}`} object={object} objects={objects} onObjectChange={onChange} onSaveObject={onSaveObject} draft={scheduleDraft} onDraftChange={onScheduleDraft} onRun={onRun} onPublish={onPublishTask} />}
+      {section === "schedule" && run.provider !== "WORKFLOW" && !isRealTask(object) && (
         <Form layout="vertical" size="small">
           <ScheduleParameterEditor key={object.id} object={object} onChange={onChange} />
           <h3>调度策略</h3>

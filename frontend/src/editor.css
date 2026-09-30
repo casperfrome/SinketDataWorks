@@ -546,4 +546,51 @@
   }
 }
 
-.sync-editor{overflow:auto;max-width:1100px;margin:auto;padding:24px;}.sync-endpoints{display:grid;grid-template-columns:1fr 1fr;gap:24px}.sync-endpoints section{min-width:0}.sync-editor .ant-form-item{margin-bottom:16px}.sync-options{margin-top:20px}.sync-editor .ant-alert{margin-bottom:16px}@media(max-width:800px){.sync-endpoints{grid-template-columns:1fr}}
+.sync-editor { width: 100%; max-width: 1280px; margin: auto; padding: 24px; }
+.sync-editor .ant-form-item { margin-bottom: 16px; }
+.sync-editor .ant-alert { margin-bottom: 18px; }
+.sync-endpoints { display: grid; grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr); gap: 8px; align-items: start; }
+.sync-endpoint { min-width: 0; padding: 18px; border: 1px solid var(--border); background: var(--panel-bg); border-radius: 5px; }
+.sync-section-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; color: var(--text); }
+.sync-section-heading > svg { color: var(--accent); flex-shrink: 0; }
+.sync-section-heading h4 { margin: 0; font-size: 14px; font-weight: 600; }
+.sync-section-heading > span { color: var(--text-muted); font-size: 11px; }
+.sync-section-heading > .ant-space { margin-left: auto; }
+.sync-flow-arrow { display: flex; align-items: center; justify-content: center; padding-top: 80px; color: var(--accent); }
+.sync-partition-panel { margin-bottom: 18px; padding: 14px 12px 0; border-left: 2px solid var(--accent); background: var(--panel); border-radius: 0 4px 4px 0; }
+.sync-partition-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 12px; }
+.sync-partition-heading .ant-tag { margin: 0; }
+.sync-partition-column { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+.sync-partition-column code, .sync-derived-mappings code { font: 12px "Cascadia Code", Consolas, monospace; }
+.sync-partition-column span, .sync-derived-mappings span:not(.ant-tag) { color: var(--text-muted); font-size: 11px; }
+.sync-partition-assignment + .sync-partition-assignment { border-top: 1px solid var(--border); padding-top: 12px; }
+.sync-mapping-section { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--border); }
+.sync-mapping-section .sync-section-heading { margin-bottom: 8px; flex-wrap: wrap; }
+.sync-mapping-help { margin: 0 0 14px; color: var(--text-muted); font-size: 12px; }
+.sync-derived-mappings { padding: 6px 12px; border: 1px solid var(--border); border-top: 0; background: var(--panel-bg); }
+.sync-derived-mappings > div { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-height: 35px; }
+.sync-derived-mappings .ant-tag { margin: 0; }
+.sync-derived-mappings svg { color: var(--text-muted); }
+.sync-unmapped { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 12px; font-size: 11px; }
+.sync-unmapped > span:first-child { margin-right: 5px; color: var(--text-muted); }
+.sync-unmapped .ant-tag { margin: 0; }
+.sync-advanced { margin-top: 18px; border-top: 1px solid var(--border); }
+.sync-advanced .ant-collapse-header { padding-inline: 0 !important; }
+.sync-advanced .ant-collapse-header-text > span { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.sync-advanced .panel-muted { margin-left: auto; font-size: 11px; }
+.sync-advanced .ant-collapse-body { padding: 0 !important; }
+.sync-options { display: flex; align-items: start; flex-wrap: wrap; gap: 24px; padding-top: 6px; }
+.sync-validation { display: flex; align-items: center; gap: 12px; padding-top: 15px; border-top: 1px solid var(--border); }
+.sync-validation > span { color: var(--text-muted); font-size: 11px; }
+@media (max-width: 1050px) {
+  .sync-editor { padding: 18px; }
+  .sync-endpoints { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .sync-flow-arrow { padding: 0; height: 18px; transform: rotate(90deg); }
+}
+@media (max-width: 600px) {
+  .sync-editor { padding: 12px; }
+  .sync-endpoint { padding: 12px; }
+  .sync-section-heading > .ant-space { margin-left: 0; width: 100%; }
+  .sync-advanced .panel-muted { display: none; }
+  .sync-validation { flex-wrap: wrap; }
+}

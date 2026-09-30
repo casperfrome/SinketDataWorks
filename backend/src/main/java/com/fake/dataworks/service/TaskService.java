@@ -15,7 +15,7 @@ public class TaskService {
     private final TaskRepository tasks;private final StudioRepository repo;private final ObjectService objects;
     private final SyncExecutionService sync;private final DatasourceService sources;private final MysqlExecutionProvider mysql;private final InventoryExecutionService inventory;private final JsonCodec json;private final TransactionTemplate tx;
     public TaskService(TaskRepository tasks,StudioRepository repo,ObjectService objects,DatasourceService sources,MysqlExecutionProvider mysql,InventoryExecutionService inventory,JsonCodec json,TransactionTemplate tx,SyncExecutionService sync){this.sync=sync;this.tasks=tasks;this.repo=repo;this.objects=objects;this.sources=sources;this.mysql=mysql;this.inventory=inventory;this.json=json;this.tx=tx;}
-    public StudioObject task(String id){var o=objects.active(id);if(!"NODE".equals(o.kind())||(!"MySQL".equals(o.nodeType())||!RunService.isMysql(o))&&!SyncExecutionService.isSync(o))throw StudioException.bad("REAL_TASK_REQUIRED","请选择真实 MySQL 或离线同步任务");return o;}
+    public StudioObject task(String id){var o=objects.active(id);boolean sql=("MySQL".equals(o.nodeType())&&RunService.isMysql(o))||("Doris".equals(o.nodeType())&&RunService.isDoris(o));if(!"NODE".equals(o.kind())||!sql&&!SyncExecutionService.isSync(o))throw StudioException.bad("REAL_TASK_REQUIRED","请选择真实 MySQL、Doris 或离线同步任务");return o;}
     public List<Map<String,Object>> releases(String id){task(id);return tasks.releases(id).stream().map(this::summary).toList();}
     private Map<String,Object> summary(Map<String,Object> r){var result=new LinkedHashMap<>(r);result.remove("snapshot");return result;}
     public Map<String,Object> release(String id){return tasks.release(id);}
@@ -54,7 +54,7 @@ public class TaskService {
         repo.lockWorkspace(o.workspaceId());
         if((release!=null||InventoryExecutionService.materializes(o)||options.containsKey("parentRunId"))&&repo.topRuns(o.workspaceId()).stream().anyMatch(r->o.id().equals(r.get("objectId"))&&Set.of("QUEUED","RUNNING","RECOVERING").contains(r.get("status"))))throw StudioException.conflict("TASK_OVERLAP","当前任务仍在运行");
         if(SyncExecutionService.isSync(o))return startSync(o,release,options);
-        var source=source(o);if(release!=null){var bound=(Map<String,Object>)release.get("dataSource");for(String k:List.of("workspaceId","host","port","database","username"))if(!(bound.get(k) instanceof Number a&&source.publicView().get(k) instanceof Number b?a.doubleValue()==b.doubleValue():Objects.equals(bound.get(k),source.publicView().get(k))))throw StudioException.conflict("DATASOURCE_BINDING_CHANGED","任务发布时的数据源目标已变化，请发布新版本");}
+        var source=source(o);if(release!=null){var bound=(Map<String,Object>)release.get("dataSource");for(String k:List.of("workspaceId","type","host","port","database","username","options"))if(!(bound.get(k) instanceof Number a&&source.publicView().get(k) instanceof Number b?a.doubleValue()==b.doubleValue():Objects.equals(bound.get(k),source.publicView().get(k))))throw StudioException.conflict("DATASOURCE_BINDING_CHANGED","任务发布时的数据源目标已变化，请发布新版本");}
         boolean material=InventoryExecutionService.materializes(o);var stage=material?inventory.prepare(o,source):null;var query=material?null:mysql.prepare(o,source);
         if(material&&!InventorySql.DWD.equals(stage.target())&&stage.query().names().contains("build_id")&&o.content().toLowerCase(Locale.ROOT).contains("etl_stage_"))throw StudioException.bad("LEGACY_SHARED_BATCH_SQL","此 SQL 仍按整条工作流共享批次读取上游。请将输入筛选改为 :upstream_别名_build_id 后重新发布任务");
         var run=material?inventory.newRun(stage):mysql.newRun(query,"MANUAL");if(options.get("existingRunId")!=null)run.put("id",options.get("existingRunId"));String id=run.get("id").toString();
@@ -103,5 +103,5 @@ public class TaskService {
         options.put("upstreamRuns",inputs);return start(o,null,options);
     }
     public Map<String,Object> rerun(String id){var run=repo.run(id).orElseThrow(()->StudioException.missing("运行不存在"));if(!"TASK".equals(run.get("releaseKind")))throw StudioException.bad("TASK_RELEASE_REQUIRED","请选择任务发布版本运行");var options=new LinkedHashMap<String,Object>();for(String k:List.of("businessDate","sourceCutoffAt","upstreamRuns","scheduledAt","timezone","scheduleParameters"))if(run.containsKey(k))options.put(k,run.get(k));options.put("triggerType","RERUN");options.put("retryOfRunId",id);return startRelease(run.get("releaseId").toString(),options);}
-    public Map<String,Object> stop(String id){if("SYNC".equals(repo.run(id).orElseThrow().get("provider")))return sync.stop(id);inventory.cancelTask(id);return repo.run(id).orElseThrow();}
+    public Map<String,Object> stop(String id){var run=repo.run(id).orElseThrow();if("SYNC".equals(run.get("provider")))return sync.stop(id);if(!Boolean.TRUE.equals(run.get("materialization")))return mysql.stop(id);inventory.cancelTask(id);return repo.run(id).orElseThrow();}
 }

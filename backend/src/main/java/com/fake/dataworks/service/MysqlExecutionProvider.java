@@ -19,7 +19,7 @@ public class MysqlExecutionProvider implements ExecutionProvider {
     private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(MysqlExecutionProvider.class);
     private final StudioRepository repo;private final DatasourceService sources;private final SqlGuard guard;private final JsonCodec json;private final TransactionTemplate transactions;
     private final ThreadPoolExecutor workers;
-    private final ScheduledExecutorService deadlines=Executors.newScheduledThreadPool(2,r->new Thread(r,"mysql-deadline"));
+    private final ScheduledExecutorService deadlines=Executors.newScheduledThreadPool(2,r->new Thread(r,"sql-deadline"));
     private volatile boolean shuttingDown;
     private final ConcurrentMap<String,Job> jobs=new ConcurrentHashMap<>();
     private static final class Job {
@@ -30,27 +30,30 @@ public class MysqlExecutionProvider implements ExecutionProvider {
     public MysqlExecutionProvider(StudioRepository repo,DatasourceService sources,SqlGuard guard,JsonCodec json,TransactionTemplate transactions,
             @Value("${studio.mysql.workers:4}") int count,@Value("${studio.mysql.queue-size:32}") int queueSize) {
         this.repo=repo;this.sources=sources;this.guard=guard;this.json=json;this.transactions=transactions;
-        workers=new ThreadPoolExecutor(count,count,0,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<>(queueSize),r->new Thread(r,"mysql-query"),new ThreadPoolExecutor.AbortPolicy());
+        workers=new ThreadPoolExecutor(count,count,0,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<>(queueSize),r->new Thread(r,"sql-query"),new ThreadPoolExecutor.AbortPolicy());
     }
     public record PreparedQuery(StudioObject snapshot,DatasourceService.ConnectionSpec source,int timeout,SqlScript script) {
         @Override public String toString() {return "PreparedQuery[objectId="+snapshot.id()+"]";}
     }
     public PreparedQuery prepare(StudioObject snapshot,DatasourceService.ConnectionSpec source) {
-        if(!snapshot.kind().equals("NODE")||!snapshot.nodeType().equals("MySQL")||!RunService.isMysql(snapshot)) throw StudioException.bad("MYSQL_NODE_REQUIRED","真实执行仅支持绑定数据源的 MySQL 节点");
+        boolean mysql=RunService.isMysql(snapshot)&&"MySQL".equals(snapshot.nodeType()),doris=RunService.isDoris(snapshot)&&"Doris".equals(snapshot.nodeType());
+        if(!"NODE".equals(snapshot.kind())||!mysql&&!doris) throw StudioException.bad("SQL_NODE_REQUIRED","真实 SQL 执行需要绑定数据源的 MySQL 或 Doris 节点");
         if(!source.workspaceId().equals(snapshot.workspaceId())) throw StudioException.bad("WORKSPACE_MISMATCH","数据源不属于当前工作空间");
-        if(!"MYSQL".equals(source.type()))throw StudioException.bad("MYSQL_DATASOURCE_REQUIRED","MySQL 节点需要 MySQL 数据源");
+        String dialect=mysql?"MYSQL":"DORIS";
+        if(!dialect.equals(source.type()))throw StudioException.bad("SQL_DATASOURCE_REQUIRED",(mysql?"MySQL":"Doris")+" 节点需要相同类型的数据源");
+        if(doris&&"MATERIALIZE".equals(RunService.config(snapshot).get("executionMode")))throw StudioException.bad("MATERIALIZATION_NODE_REQUIRED","库存落表模式仅支持 MySQL 节点");
         var config=RunService.config(snapshot);
         Object seconds=config.containsKey("timeoutSeconds")?config.get("timeoutSeconds"):30;
         if(!(seconds instanceof Number number)||number.doubleValue()!=number.intValue()||number.intValue()<1||number.intValue()>300) throw StudioException.bad("INVALID_TIMEOUT","运行超时须为 1–300 秒");
-        var script=SqlScript.prepare(snapshot.content(),source.database(),guard);
+        var script=SqlScript.prepare(snapshot.content(),source.database(),guard,dialect);
         return new PreparedQuery(snapshot,source,((Number)seconds).intValue(),script);
     }
     public Map<String,Object> newRun(PreparedQuery prepared,String mode) {
         var snapshot=prepared.snapshot();Map<String,Object> run=new LinkedHashMap<>();
         run.put("id",UUID.randomUUID().toString());run.put("workspaceId",snapshot.workspaceId());run.put("objectId",snapshot.id());run.put("objectName",snapshot.name());run.put("objectVersion",snapshot.version());
-        run.put("provider","MYSQL");run.put("simulation",false);run.put("dataSource",prepared.source().publicView());run.put("status","QUEUED");run.put("mode",mode==null?"MANUAL":mode);run.put("timeoutSeconds",prepared.timeout());
+        run.put("provider",prepared.source().type());run.put("simulation",false);run.put("dataSource",prepared.source().publicView());run.put("status","QUEUED");run.put("mode",mode==null?"MANUAL":mode);run.put("timeoutSeconds",prepared.timeout());
         run.put("containsWrites",prepared.script().writes());run.put("statements",SqlResults.pending(prepared.script()));
-        run.put("createdAt",ObjectService.now());run.put("parameters",Map.of("bizdate",java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(1).toString(),"source_cutoff",java.time.Instant.now().toString(),"build_id",run.get("id")));run.put("logs",List.of("[MySQL] 已保存执行代码与版本快照，等待执行资源。"));run.put("columns",List.of());run.put("rows",List.of());
+        run.put("createdAt",ObjectService.now());run.put("parameters",Map.of("bizdate",java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(1).toString(),"source_cutoff",java.time.Instant.now().toString(),"build_id",run.get("id")));run.put("logs",List.of(label(prepared)+" 已保存执行代码与版本快照，等待执行资源。"));run.put("columns",List.of());run.put("rows",List.of());
         return run;
     }
     @Override public Map<String,Object> start(StudioObject snapshot,String mode,boolean fail) {
@@ -66,13 +69,13 @@ public class MysqlExecutionProvider implements ExecutionProvider {
         long started=System.nanoTime();long statementStarted=started;
         try {
             var run=repo.run(id).orElseThrow();run.put("status","RUNNING");run.put("startedAt",ObjectService.now());
-            run.put("logs",List.of("[MySQL] 已保存执行快照。","[MySQL] 按顺序逐条执行并提交，失败后停止；已提交操作保留。"));
-            if(prepared.script().writes()){var logs=new ArrayList<Object>((List<?>)run.get("logs"));logs.add("[MySQL] 含写入任务不自动失败重试；手动重跑会从第一条语句重新执行。");run.put("logs",logs);}
+            run.put("logs",List.of(label(prepared)+" 已保存执行快照。",label(prepared)+" 按顺序逐条执行并提交，失败后停止；已提交操作保留。"));
+            if(prepared.script().writes()){var logs=new ArrayList<Object>((List<?>)run.get("logs"));logs.add(label(prepared)+" 含写入任务不自动失败重试；手动重跑会从第一条语句重新执行。");run.put("logs",logs);}
             if(!repo.transitionRun(run,"QUEUED"))return;
             job.deadline=deadlines.schedule(()->{job.timedOut=true;interruptQuery(job);},prepared.timeout(),TimeUnit.SECONDS);
             checkStopped(job);
             try(Connection connection=sources.open(prepared.source(),prepared.timeout(),true)) {
-                job.connection=connection;checkStopped(job);connection.setAutoCommit(true);
+                job.connection=connection;checkStopped(job);connection.setAutoCommit(true);configureDoris(connection,prepared.source().type(),prepared.timeout());
                 @SuppressWarnings("unchecked") var parameters=(Map<String,Object>)run.getOrDefault("parameters",Map.of());
                 // Resolve every parameter before dispatching the first command.
                 for(var command:prepared.script().commands())try(var statement=connection.prepareStatement(command.parameters().sql())) {
@@ -98,21 +101,21 @@ public class MysqlExecutionProvider implements ExecutionProvider {
                         persist(id,job);job.current=null;job.dispatched=false;job.statement=null;
                     }
                 }
-                finish(id,"SUCCESS",null,"[MySQL] 全部语句执行成功。",SqlResults.envelope(job.results),elapsed(started));
+                finish(id,"SUCCESS",null,label(prepared)+" 全部语句执行成功。",SqlResults.envelope(job.results),elapsed(started));
             }
         } catch(Exception e) {
             boolean timeout=job.timedOut||e instanceof SQLTimeoutException||(e instanceof SQLException se&&(se.getErrorCode()==3024||"S1T00".equals(se.getSQLState())));
             boolean connectionLost=e instanceof SQLException se&&se.getSQLState()!=null&&se.getSQLState().startsWith("08");
             boolean unknown=job.current!=null&&job.dispatched&&"IN_PROGRESS".equals(job.current.get("commitStatus"))&&(timeout||job.cancelled||connectionLost||shuttingDown);
             String code=unknown?"COMMIT_UNKNOWN":timeout?"QUERY_TIMEOUT":job.cancelled?"QUERY_CANCELLED":connectionLost?"DATASOURCE_UNAVAILABLE":"DB_TRANSIENT".equals(InventoryExecutionService.errorCode(e))?"DB_TRANSIENT":"QUERY_FAILED";
-            String message=unknown?"提交结果未知，请核实业务数据；后续语句未执行。":timeout?"运行超过时间限制，后续语句未执行。":job.cancelled?"用户已停止执行；已提交操作保留。":e instanceof SQLException se?sqlError(se):"执行失败，请检查数据库与 SQL 配置。";
+            String message=unknown?"提交结果未知，请核实业务数据；后续语句未执行。":timeout?"运行超过时间限制，后续语句未执行。":job.cancelled?"用户已停止执行；已提交操作保留。":e instanceof SQLException se?sqlError(se,prepared.source().type()):"执行失败，请检查数据库与 SQL 配置。";
             if(job.current!=null) {
                 // A metadata-persistence failure after JDBC success must not disguise a committed write.
                 boolean committed="COMMITTED".equals(job.current.get("commitStatus"));
-                if(!committed){job.current.put("status",unknown?"UNKNOWN":job.cancelled&&!timeout?"CANCELLED":"FAILED");job.current.put("commitStatus",unknown?"UNKNOWN":job.dispatched?"NOT_COMMITTED":"NOT_STARTED");}
+                if(!committed){job.current.put("status",unknown?"UNKNOWN":job.cancelled&&!timeout?"CANCELLED":"FAILED");job.current.put("commitStatus",job.current.get("kind").equals("QUERY")?"NOT_APPLICABLE":unknown?"UNKNOWN":job.dispatched?"NOT_COMMITTED":"NOT_STARTED");}
                 job.current.put("errorCode",code);job.current.put("message",message);job.current.put("elapsedMs",elapsed(statementStarted));
             }
-            if(!job.cancelled&&!timeout)log.warn("SQL run failed: run={}, type={}, code={}",id,e.getClass().getSimpleName(),code);
+            if(!job.cancelled&&!timeout)log.warn("SQL run failed: provider={}, run={}, type={}, code={}",prepared.source().type(),id,e.getClass().getSimpleName(),code);
             if(!shuttingDown)finish(id,unknown||!job.cancelled||timeout?"FAILED":"CANCELLED",code,message,SqlResults.envelope(job.results),elapsed(started));
         } finally {
             if(job.deadline!=null)job.deadline.cancel(false);job.statement=null;job.connection=null;jobs.remove(id,job);
@@ -120,10 +123,21 @@ public class MysqlExecutionProvider implements ExecutionProvider {
     }
     private void checkStopped(Job job) {if(job.cancelled||job.timedOut||shuttingDown)throw new CancellationException();}
     private void persist(String id,Job job) {repo.saveResult(id,SqlResults.envelope(job.results));}
-    private String sqlError(SQLException e) {
+    private static String label(PreparedQuery prepared){return "DORIS".equals(prepared.source().type())?"[Doris]":"[MySQL]";}
+    static void configureDoris(Connection connection,String type,int timeout) throws SQLException {
+        if(!"DORIS".equals(type))return;
+        try(Statement settings=connection.createStatement()) {
+            settings.setQueryTimeout(Math.min(timeout,5));
+            settings.execute("SET time_zone = 'Asia/Shanghai'");
+            settings.execute("SET query_timeout = "+timeout);
+            settings.execute("SET insert_timeout = "+timeout);
+            settings.execute("SET group_commit = 'off_mode'");
+        }
+    }
+    private String sqlError(SQLException e,String type) {
         return switch(e.getErrorCode()) {
             case 1045 -> "业务数据库认证失败，请检查数据源凭据。";
-            case 1064 -> "SQL 语法错误，请检查 MySQL 查询语法。";
+            case 1064 -> "SQL 语法错误，请检查 "+("DORIS".equals(type)?"Doris":"MySQL")+" 查询语法。";
             case 1146 -> "查询引用的表不存在。";
             case 1054 -> "查询引用的字段不存在。";
             case 1044,1142,1143,1227,1792 -> "业务数据库拒绝访问，请检查账号对当前业务库的读写及表结构权限。";

@@ -44,6 +44,7 @@ import {
   ClusterOutlined,
 } from "@ant-design/icons";
 import type { GraphNode, StudioObject, WorkflowGraph } from "../types";
+import { isRealTask } from "../state/workflows";
 import { nodeTypes, nodeGroups, getNodeType } from "../data/nodeTypes";
 import { connectionProblem, removeGraphElements } from "../data/workflowRules";
 import "@xyflow/react/dist/style.css";
@@ -225,7 +226,7 @@ function WorkflowCanvas({ object, onChange, objects, onOpen, theme }: Props) {
       (group === "全部" || n.group === group) &&
       `${n.label} ${n.group}`.toLowerCase().includes(query.toLowerCase()),
   );
-  const available = objects.filter(o => object.config.run?.provider !== "WORKFLOW" || (o.kind === "NODE" && ["MYSQL","SYNC"].includes(o.config.run?.provider))).filter(
+  const available = objects.filter(o => object.config.run?.provider !== "WORKFLOW" || isRealTask(o)).filter(
     (o) =>
       !o.deleted &&
       ["NODE", "NOTEBOOK", "PERSONAL", "COMPONENT"].includes(o.kind) &&

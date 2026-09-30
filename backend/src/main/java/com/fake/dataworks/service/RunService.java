@@ -22,6 +22,8 @@ public class RunService implements ExecutionProvider {
     @PostConstruct public void recover() {sync.recover();simulation.recover();}
     public static Map<?,?> config(StudioObject object) {return object.config().get("run") instanceof Map<?,?> map?map:Map.of();}
     public static boolean isMysql(StudioObject object) {return "MYSQL".equals(config(object).get("provider"));}
+    public static boolean isDoris(StudioObject object) {return "DORIS".equals(config(object).get("provider"));}
+    public static boolean isSql(StudioObject object) {return isMysql(object)||isDoris(object);}
     public Map<String,Object> submit(String objectId,String mode,boolean fail,Integer expectedVersion) {
         return submit(objectId,mode,fail,expectedVersion,Map.of());
     }
@@ -34,14 +36,14 @@ public class RunService implements ExecutionProvider {
             if(fail) throw StudioException.bad("SIMULATION_ONLY","真实工作流不支持模拟失败");
             return workflows.startDevelopment(objectId,expectedVersion,expectedNodeVersions,options);
         }
-        if((isMysql(snapshot)||SyncExecutionService.isSync(snapshot))&&(expectedVersion==null||expectedVersion!=snapshot.version())) throw StudioException.conflict("VERSION_CONFLICT","执行需要最新保存版本，请保存并重新运行");
-        if((isMysql(snapshot)||SyncExecutionService.isSync(snapshot))){if(fail)throw StudioException.bad("SIMULATION_ONLY","真实任务不支持模拟失败");return tasks.startDevelopment(snapshot,options);}
+        if((isSql(snapshot)||SyncExecutionService.isSync(snapshot))&&(expectedVersion==null||expectedVersion!=snapshot.version())) throw StudioException.conflict("VERSION_CONFLICT","执行需要最新保存版本，请保存并重新运行");
+        if((isSql(snapshot)||SyncExecutionService.isSync(snapshot))){if(fail)throw StudioException.bad("SIMULATION_ONLY","真实任务不支持模拟失败");return tasks.startDevelopment(snapshot,options);}
         return start(snapshot,mode,fail);
     }
     @Override public Map<String,Object> start(StudioObject snapshot,String mode,boolean fail) {
         if(WorkflowService.isWorkflow(snapshot)) throw StudioException.bad("WORKFLOW_VERSION_REQUIRED","工作流执行需要父子节点预期版本");
         if(SyncExecutionService.isSync(snapshot))return tasks.startDevelopment(snapshot,Map.of());
-        if(isMysql(snapshot)) {
+        if(isSql(snapshot)) {
             if(InventoryExecutionService.materializes(snapshot))throw StudioException.bad("RUN_INVENTORY_WORKFLOW","请运行所属库存工作流；三层结果将一起发布");
             if(fail) throw StudioException.bad("SIMULATION_ONLY","真实查询不支持模拟失败选项");
             return mysql.start(snapshot,mode,false);
@@ -54,7 +56,7 @@ public class RunService implements ExecutionProvider {
         if("WORKFLOW".equals(run.get("provider")))return workflows.stop(id);
         if(Boolean.TRUE.equals(run.get("taskExecution"))&&Boolean.TRUE.equals(run.get("materialization")))return tasks.stop(id);
         if("SYNC".equals(run.get("provider")))return sync.stop(id);
-        return "MYSQL".equals(run.get("provider"))?mysql.stop(id):simulation.stop(id);
+        return ("MYSQL".equals(run.get("provider"))||"DORIS".equals(run.get("provider")))?mysql.stop(id):simulation.stop(id);
     }
     public Map<String,Object> required(String id) {return repo.run(id).orElseThrow(()->StudioException.missing("运行记录不存在"));}
     public Map<String,Object> detail(String id) {var run=required(id);run.put("snapshot",repo.runSnapshot(id));return run;}

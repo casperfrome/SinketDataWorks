@@ -79,7 +79,7 @@ export interface Run {
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;
-  provider?: "SYNC" | "MYSQL" | "SIMULATION" | "WORKFLOW";
+  provider?: "SYNC" | "MYSQL" | "DORIS" | "SIMULATION" | "WORKFLOW";
   parentRunId?: string;
   graphNodeId?: string;
   executionSource?: "DEVELOPMENT" | "RELEASE";
@@ -102,6 +102,7 @@ export interface Run {
   writeMode?:string;syncStage?:string;syncMessage?:string;remoteRunId?:string;remoteState?:string;
   readRows?:number;readBytes?:number;committedBatches?:number;filteredRows?:number;serverAffectedRows?:number;
   partialWrite?:boolean;commitUnknown?:boolean;cancelRequested?:boolean;clearStatus?:string;
+  resolvedTargetPartitions?:string[];resolvedPartitionAssignments?:{target:string;value?:string;source?:string}[];clearScope?:string;
   snapshot?: StudioObject;
   materialization?: boolean;
   executionMode?: "QUERY" | "MATERIALIZE";
@@ -187,6 +188,12 @@ export interface ParameterPreview { businessDate: string; scheduledAt: string; t
 export interface SyncConfig {
  sourceDataSourceId?:string;targetDataSourceId?:string;sourceTable?:string;targetTable?:string;
  columns?:string[];where?:string;mapping?:{source:string;target:string}[];
+ sourcePartitionFilter?:{partitions?:string[];where?:string};
+ targetPartitionAssignments?:SyncPartitionAssignment[];targetPartitions?:string[];
  writeMode?:"append"|"upsert"|"overwrite";keyColumns?:string[];batchRows?:number;parallelism?:number;timeoutSeconds?:number;
 }
-export interface SyncMetadata {model:string;uniqueKeys:string[][];columns:{name:string;type:string;nullable:string;columnKey:string;comment:string}[]}
+export interface SyncPartitionAssignment {target:string;mode:"value"|"column";value?:string;source?:string}
+export interface SyncMetadata {
+ model:string;uniqueKeys:string[][];columns:{name:string;type:string;nullable:string;columnKey:string;comment:string}[];
+ partition:{type:"NONE"|"RANGE"|"LIST";automatic:boolean;expression?:string;columns:{name:string;type:string}[];partitions:{name:string;range:string;lower?:string;upper?:string;values?:string[]}[]};
+}

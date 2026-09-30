@@ -10,7 +10,30 @@ import java.util.regex.*;
 /** Reuses SQL placeholder compilation, and renders Flight values without SQL escaping. */
 public final class SyncParameters {
     private SyncParameters(){}
+    private static final Pattern INTERNAL=Pattern.compile(":(?:bizdate|source_cutoff|build_id|upstream_[A-Za-z][A-Za-z0-9_]{0,31}_build_id)");
     public record Compiled(String sql,List<Map<String,Object>> params){}
+    /** Represent assignment text as a SQL literal only for the shared parameter scanner. */
+    public static String parameterCode(String input) {
+        return INTERNAL.matcher(input).matches()?input:"'"+input.replace("\\","\\\\").replace("'","''")+"'";
+    }
+    /** A partition value is text, not a SQL fragment; SQL placeholders are generated separately. */
+    public static String value(String input,Map<String,Object> run) {
+        Map<?,?> custom=run.get("scheduleParameters") instanceof Map<?,?> m?m:Map.of();
+        Map<?,?> internal=run.get("parameters") instanceof Map<?,?> m?m:Map.of();
+        if(INTERNAL.matcher(input).matches())return required(internal,input.substring(1));
+        var matcher=Pattern.compile("\\$\\{([A-Za-z_][A-Za-z0-9_]{0,63})}").matcher(input);var result=new StringBuilder();
+        while(matcher.find())matcher.appendReplacement(result,Matcher.quoteReplacement(required(custom,matcher.group(1))));matcher.appendTail(result);
+        if(result.indexOf("${")>=0)throw StudioException.bad("INVALID_SYNC_PARTITION","分区参数格式无效");
+        return result.toString();
+    }
+    public static String partitionValue(String value,String type) {
+        if(type.toUpperCase(Locale.ROOT).matches("DATE(?:V2)?(?:\\([^)]*\\))?")) {
+            try{if(!value.matches("[0-9]{8}|[0-9]{4}-[0-9]{2}-[0-9]{2}"))throw new IllegalArgumentException();return LocalDate.parse(value,value.matches("[0-9]{8}")?DateTimeFormatter.BASIC_ISO_DATE:DateTimeFormatter.ISO_LOCAL_DATE).toString();}
+            catch(Exception e){throw StudioException.bad("INVALID_SYNC_PARTITION_DATE","DATE 分区值须为有效的 yyyy-MM-dd 或 yyyyMMdd 日期");}
+        }
+        if(value.isBlank()||value.length()>4096||value.codePoints().anyMatch(Character::isISOControl))throw StudioException.bad("INVALID_SYNC_PARTITION","分区值不能为空或包含控制字符");
+        return value;
+    }
     public static Compiled compile(String input,Map<String,Object> run,boolean doris) {
         var compiled=SqlParameters.compile(input);var values=new ArrayList<String>();
         Map<?,?> custom=run.get("scheduleParameters") instanceof Map<?,?> m?m:Map.of();
