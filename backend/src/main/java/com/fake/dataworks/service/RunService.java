@@ -7,6 +7,7 @@ import jakarta.annotation.PostConstruct;
 import java.util.*;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @Primary
@@ -18,7 +19,9 @@ public class RunService implements ExecutionProvider {
     private final WorkflowService workflows;
     private final TaskService tasks;
     private final SyncExecutionService sync;
-    public RunService(StudioRepository repo,ObjectService objects,LocalSimulationProvider simulation,MysqlExecutionProvider mysql,WorkflowService workflows,TaskService tasks,SyncExecutionService sync) {this.sync=sync;this.repo=repo;this.objects=objects;this.simulation=simulation;this.mysql=mysql;this.workflows=workflows;this.tasks=tasks;}
+    private final DebugParameterService debugParameters;
+    private final TransactionTemplate transactions;
+    public RunService(StudioRepository repo,ObjectService objects,LocalSimulationProvider simulation,MysqlExecutionProvider mysql,WorkflowService workflows,TaskService tasks,SyncExecutionService sync,DebugParameterService debugParameters,TransactionTemplate transactions) {this.sync=sync;this.repo=repo;this.objects=objects;this.simulation=simulation;this.mysql=mysql;this.workflows=workflows;this.tasks=tasks;this.debugParameters=debugParameters;this.transactions=transactions;}
     @PostConstruct public void recover() {sync.recover();simulation.recover();}
     public static Map<?,?> config(StudioObject object) {return object.config().get("run") instanceof Map<?,?> map?map:Map.of();}
     public static boolean isMysql(StudioObject object) {return "MYSQL".equals(config(object).get("provider"));}
@@ -33,12 +36,24 @@ public class RunService implements ExecutionProvider {
     public Map<String,Object> submit(String objectId,String mode,boolean fail,Integer expectedVersion,Map<String,Object> expectedNodeVersions,Map<String,Object> options) {
         StudioObject snapshot=objects.active(objectId);
         if(WorkflowService.isWorkflow(snapshot)) {
+            if(options.containsKey("debugParameters"))throw StudioException.bad("INVALID_DEBUG_PARAMETERS","工作流不支持单节点调试参数");
             if(fail) throw StudioException.bad("SIMULATION_ONLY","真实工作流不支持模拟失败");
             return workflows.startDevelopment(objectId,expectedVersion,expectedNodeVersions,options);
         }
         if((isSql(snapshot)||SyncExecutionService.isSync(snapshot))&&(expectedVersion==null||expectedVersion!=snapshot.version())) throw StudioException.conflict("VERSION_CONFLICT","执行需要最新保存版本，请保存并重新运行");
-        if((isSql(snapshot)||SyncExecutionService.isSync(snapshot))){if(fail)throw StudioException.bad("SIMULATION_ONLY","真实任务不支持模拟失败");return tasks.startDevelopment(snapshot,options);}
-        return start(snapshot,mode,fail);
+        if((isSql(snapshot)||SyncExecutionService.isSync(snapshot))&&fail)throw StudioException.bad("SIMULATION_ONLY","真实任务不支持模拟失败");
+        if(!"NODE".equals(snapshot.kind())||!"MANUAL".equals(mode)) {
+            if(options.containsKey("debugParameters"))throw StudioException.bad("INVALID_DEBUG_PARAMETERS","调试参数只适用于单节点手动开发运行");
+            return (isSql(snapshot)||SyncExecutionService.isSync(snapshot))?tasks.startDevelopment(snapshot,options):start(snapshot,mode,fail);
+        }
+        return transactions.execute(t->{
+            repo.lockWorkspace(snapshot.workspaceId());var current=objects.active(objectId);
+            int version=expectedVersion==null?snapshot.version():expectedVersion;
+            if(current.version()!=version)throw StudioException.conflict("VERSION_CONFLICT","执行需要最新保存版本，请保存并重新运行");
+            var frozen=debugParameters.freeze(current,options);
+            var run=(isSql(current)||SyncExecutionService.isSync(current))?tasks.startDevelopment(current,frozen.options()):simulation.start(current,mode,fail,frozen.options());
+            debugParameters.remember(current.id(),frozen);return run;
+        });
     }
     @Override public Map<String,Object> start(StudioObject snapshot,String mode,boolean fail) {
         if(WorkflowService.isWorkflow(snapshot)) throw StudioException.bad("WORKFLOW_VERSION_REQUIRED","工作流执行需要父子节点预期版本");

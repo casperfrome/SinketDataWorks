@@ -36,13 +36,13 @@ class SqlExecutionProviderTest {
         var node=node("Doris","DORIS",Map.of());var objects=mock(ObjectService.class);when(objects.active("node")).thenReturn(node);
         var tasks=new TaskService(mock(TaskRepository.class),mock(StudioRepository.class),objects,mock(DatasourceService.class),mock(MysqlExecutionProvider.class),mock(InventoryExecutionService.class),new JsonCodec(),mock(TransactionTemplate.class),mock(SyncExecutionService.class));
         assertSame(node,tasks.task("node"));assertTrue(RunService.isSql(node));assertFalse(RunService.isMysql(node));
-        var runs=new RunService(mock(StudioRepository.class),objects,mock(LocalSimulationProvider.class),mock(MysqlExecutionProvider.class),mock(WorkflowService.class),tasks,mock(SyncExecutionService.class));
+        var runs=new RunService(mock(StudioRepository.class),objects,mock(LocalSimulationProvider.class),mock(MysqlExecutionProvider.class),mock(WorkflowService.class),tasks,mock(SyncExecutionService.class),mock(DebugParameterService.class),mock(TransactionTemplate.class));
         assertEquals("VERSION_CONFLICT",assertThrows(StudioException.class,()->runs.submit("node","MANUAL",false,null)).code());
         assertEquals("SIMULATION_ONLY",assertThrows(StudioException.class,()->runs.submit("node","MANUAL",true,1)).code());
     }
     @Test void stoppingLegacySimulationWithoutProviderStillUsesSimulation(){
         var repo=mock(StudioRepository.class);var simulation=mock(LocalSimulationProvider.class);var run=Map.<String,Object>of("id","legacy","status","RUNNING","simulation",true);when(repo.run("legacy")).thenReturn(Optional.of(run));when(simulation.stop("legacy")).thenReturn(run);
-        var runs=new RunService(repo,mock(ObjectService.class),simulation,mock(MysqlExecutionProvider.class),mock(WorkflowService.class),mock(TaskService.class),mock(SyncExecutionService.class));assertSame(run,runs.stop("legacy"));verify(simulation).stop("legacy");
+        var runs=new RunService(repo,mock(ObjectService.class),simulation,mock(MysqlExecutionProvider.class),mock(WorkflowService.class),mock(TaskService.class),mock(SyncExecutionService.class),mock(DebugParameterService.class),mock(TransactionTemplate.class));assertSame(run,runs.stop("legacy"));verify(simulation).stop("legacy");
     }
     @Test void lostConnectionPreservesAcknowledgedDorisWriteAndDoesNotDispatchLaterCommand() throws Exception {
         try(var execution=new Execution("INSERT INTO orders VALUES(1);ALTER TABLE orders ADD COLUMN extra INT;SELECT 1")){

@@ -35,6 +35,7 @@ Controller 负责 HTTP/DTO 转换；Service 负责校验、事务和执行提供
 | `/objects/{id}/versions/{versionId}/restore` | POST | 将历史内容保存为新版本，body 包含当前 `version` |
 | `/objects/{id}/file` | POST、GET | multipart 字段 `file` 上传、下载；文件上限 20 MB |
 | `/runs`、`/runs/{id}/stop` | GET/POST、POST | 真实 MySQL、Doris、数据集成、工作流及模拟运行和停止 |
+| `/runs/parameters/prepare` | POST | 基于节点草稿准备调试参数；只读，不保存或执行 |
 | `/records`、`/records/{id}` | GET/POST、PATCH | 发布、评审、检查、冒烟、治理、AI、代码管理记录 |
 | `/preferences` | GET、PUT | 本地单用户偏好完整 JSON |
 | `/actuator/health` | GET | 服务与数据库健康状态 |

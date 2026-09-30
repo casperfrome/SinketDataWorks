@@ -43,6 +43,9 @@ public class InventoryExecutionService {
         return new PreparedStage(object,source,target,query,timeout);
     }
     public Map<String,Object> parameters(Map<String,Object> requested,String buildId){
+        return runtimeParameters(requested,buildId);
+    }
+    public static Map<String,Object> runtimeParameters(Map<String,Object> requested,String buildId){
         try {
             String date=Objects.toString(requested.get("businessDate"),LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(1).toString());
             LocalDate parsed=LocalDate.parse(date);if(parsed.isAfter(LocalDate.now(ZoneId.of("Asia/Shanghai"))))throw new IllegalArgumentException();

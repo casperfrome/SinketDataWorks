@@ -3,6 +3,7 @@ import { Alert, App, Button, Descriptions, Input, Modal, Space, Table, Tag } fro
 import { api } from "../api";
 import type { Run } from "../types";
 import { isPending } from "../state/workflows";
+import RunParameters from "./RunParameters";
 
 const stages:Record<string,string>={WAITING_TARGET:"等待目标表",SUBMITTING:"提交任务",queued:"等待引擎",validate:"预检",pre_sql:"清空目标",transfer:"批量传输",post_sql:"收尾",complete:"完成",CANCELLING:"停止中"};
 export default function SyncRunDetails({run,refresh}:{run:Run;refresh:()=>void}) {
@@ -19,6 +20,7 @@ export default function SyncRunDetails({run,refresh}:{run:Run;refresh:()=>void})
       {key:"partitionValues",label:"分区字段",children:run.resolvedPartitionAssignments?.map(a=>`${a.target} = ${a.value ?? a.source ?? "—"}`).join("；") || "—"},
       {key:"clearScope",label:"覆盖范围",children:run.clearScope || "—"}
     ]}/>
+    <RunParameters parameters={run.scheduleParameters} />
     {run.writeMode==="overwrite"&&(run.clearStatus==="CLEARED"||run.clearStatus==="MAY_HAVE_CLEARED")&&<Alert type="warning" title={run.clearStatus==="CLEARED"?"目标覆盖范围已清空，已提交的数据保留":"目标覆盖范围可能已清空，请结合运行阶段核实"} description={run.clearScope}/>}
     {run.clearStatus==="SKIPPED_NO_PARTITION"&&<Alert type="info" title="执行前目标分区不存在，已跳过清空" description="后续写入按分区字段值创建分区，其他已有分区保留。"/>}
     {!!run.syncMessage&&<Alert type={run.status==="SUCCESS"?"info":"warning"} title={run.syncMessage} description={run.errorCode}/>}

@@ -71,6 +71,18 @@ class SyncPartitionTest {
         sync.prepare(snapshot);var captor=ArgumentCaptor.forClass(RunSpec.class);verify(client).validate(captor.capture());var reader=assertInstanceOf(MysqlReader.class,captor.getValue().reader());assertEquals("2026-09-29",assertInstanceOf(Parameter.StringValue.class,reader.source().params().getFirst()).value());
         assertEquals(List.of("bizdate"),SqlParameters.extract(SyncExecutionService.parameterCode(snapshot)));verify(jdbc,never()).update(anyString(),any(),any());
     }
+    @Test @SuppressWarnings("unchecked") void debugPreflightUsesFrozenOverridesAndCutoffWithoutSavedDefinitions(){
+        var c=config("append");c.put("sourceDataSourceId","mysql");c.put("targetDataSourceId","doris");c.put("where","ordered_at < :source_cutoff AND id = '${region}'");
+        var snapshot=new StudioObject("object","workspace",null,"NODE","数据集成","sync","","",Map.of("run",Map.of("provider","SYNC"),"sync",c),List.of(),false,false,1,"local_admin",Instant.now().toString());
+        when(sources.forWorkspace("mysql","workspace")).thenReturn(mysql);when(sources.forWorkspace("doris","workspace")).thenReturn(doris);when(sources.columns(mysql,"orders")).thenReturn((List<Map<String,Object>>)sourceMetadata.get("columns"));when(sources.syncMetadata(doris,"ods_orders_di")).thenReturn(target(true,false));
+        String literal="literal $bizdate O'Reilly = 中文";var options=Map.<String,Object>of("businessDate","2026-09-28","scheduledAt","2026-09-29T02:00:00Z","timezone","UTC","sourceCutoffAt","2026-09-29T01:02:03.123456Z","scheduleParameters",Map.of("bizdate","20260929","region",literal));
+        var prepared=sync.prepare(snapshot,List.of(),options);var captured=ArgumentCaptor.forClass(RunSpec.class);verify(client).validate(captured.capture());
+        var validated=assertInstanceOf(MysqlReader.class,captured.getValue().reader());
+        assertEquals(List.of("2026-09-29","2026-09-29 01:02:03.123456",literal),validated.source().params().stream().map(p->assertInstanceOf(Parameter.StringValue.class,p).value()).toList());
+        var run=sync.newRun(prepared,"MANUAL");ScheduleParameters.attach(run,snapshot,options,List.of());run.put("parameters",Map.of("bizdate",run.get("businessDate"),"source_cutoff",options.get("sourceCutoffAt"),"build_id",run.get("id")));
+        var execution=assertInstanceOf(MysqlReader.class,sync.spec(prepared,run).reader());assertEquals(validated.source().params(),execution.source().params());
+        verify(client,never()).submit(anyString(),any(),any());verify(jdbc,never()).update(anyString(),any(),any());
+    }
     @Test @SuppressWarnings("unchecked") void targetPartitionScopeIsRefreshedAfterLockAndFrozenForResubmission(){
         var c=config("overwrite");var r=run();var p=prepared(c,target(true,false));var state=new LinkedHashMap<String,Object>(Map.of("submitted",false,"cancel_requested",false,"service_url","http://127.0.0.1:9876"));
         when(repo.run("local")).thenReturn(Optional.of(r));when(jdbc.queryForMap(anyString(),eq("local"))).thenReturn(state);when(tx.execute(any())).thenReturn(true);when(client.health(anyString())).thenReturn(Map.of("state_store_id","store"));when(sources.syncMetadata(doris,"ods_orders_di")).thenReturn(target(true,true));

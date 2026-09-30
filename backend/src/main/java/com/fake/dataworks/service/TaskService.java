@@ -78,7 +78,7 @@ public class TaskService {
         });if(options.containsKey("existingRunId"))repo.updateRun(run);else repo.insertRun(run,o);return run;
     });}
     @SuppressWarnings("unchecked") private Map<String,Object> startSync(StudioObject o,Map<String,Object> release,Map<String,Object> options) {
-        var p=options.get("_syncPrepared") instanceof SyncExecutionService.Prepared fixed?fixed:sync.prepare(o);
+        var p=options.get("_syncPrepared") instanceof SyncExecutionService.Prepared fixed?fixed:sync.prepare(o,List.of(),options);
         if(release!=null)verifyBindings((List<Map<String,Object>>)release.get("datasourceBindings"),p.bindings());
         var run=sync.newRun(p,"MANUAL");if(options.get("existingRunId")!=null)run.put("id",options.get("existingRunId"));String id=run.get("id").toString();
         ScheduleParameters.attach(run,o,options,List.of());var parameters=new LinkedHashMap<>(inventory.parameters(options,id));run.put("parameters",parameters);

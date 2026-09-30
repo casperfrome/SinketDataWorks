@@ -21,9 +21,10 @@ public final class SyncParameters {
         Map<?,?> custom=run.get("scheduleParameters") instanceof Map<?,?> m?m:Map.of();
         Map<?,?> internal=run.get("parameters") instanceof Map<?,?> m?m:Map.of();
         if(INTERNAL.matcher(input).matches())return required(internal,input.substring(1));
-        var matcher=Pattern.compile("\\$\\{([A-Za-z_][A-Za-z0-9_]{0,63})}").matcher(input);var result=new StringBuilder();
+        var matcher=Pattern.compile("\\$\\{([A-Za-z_][A-Za-z0-9_]{0,63})}").matcher(input);
+        if(matcher.replaceAll("").contains("${"))throw StudioException.bad("INVALID_SYNC_PARTITION","分区参数格式无效");
+        matcher.reset();var result=new StringBuilder();
         while(matcher.find())matcher.appendReplacement(result,Matcher.quoteReplacement(required(custom,matcher.group(1))));matcher.appendTail(result);
-        if(result.indexOf("${")>=0)throw StudioException.bad("INVALID_SYNC_PARTITION","分区参数格式无效");
         return result.toString();
     }
     public static String partitionValue(String value,String type) {

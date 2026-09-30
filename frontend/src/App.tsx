@@ -88,7 +88,9 @@ import {
   Cloud,
 } from "lucide-react";
 import { format as formatSQL } from "sql-formatter";
-import { api } from "./api";
+import { api, ApiError } from "./api";
+import RunParameterDialog from "./components/RunParameterDialog";
+import { effectiveRunParameters, shouldOpenRunParameters } from "./state/runParameters";
 import type {
   Workspace,
   StudioObject,
@@ -97,6 +99,7 @@ import type {
   Run,
   StudioRecord,
   Activity,
+  RunParameterPreparation,
 } from "./types";
 import StudioEditor from "./components/StudioEditor";
 import Inspector from "./components/Inspector";
@@ -113,6 +116,14 @@ import {
   mergeMetadataDraft,
   pruneDeletedDrafts,
 } from "./state/drafts";
+
+interface NodeRunRequest {
+  object: StudioObject;
+  needsSave: boolean;
+  fail: boolean;
+  mode: "NORMAL" | "CUSTOM";
+  phase: "PREPARING" | "EDITING" | "SAVING" | "SUBMITTING";
+}
 
 const activities: { id: Activity; label: string; icon: typeof CodeXml }[] = [
   { id: "development", label: "数据开发", icon: CodeXml },
@@ -335,6 +346,16 @@ function Studio({
     new Map<string, Promise<StudioObject | undefined>>(),
   );
   const runRequests = useRef(new Set<string>());
+  const nodeRunRequest = useRef<NodeRunRequest | null>(null);
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+  const [nodeRunPendingId, setNodeRunPendingId] = useState<string | null>(null);
+  const [nodeRunSubmitting, setNodeRunSubmitting] = useState(false);
+  const [nodeRunDialog, setNodeRunDialog] = useState<{
+    request: NodeRunRequest;
+    preparation: RunParameterPreparation;
+    error?: string;
+  } | null>(null);
   const prefQueue = useRef<Promise<unknown>>(Promise.resolve());
   widRef.current = workspaceId;
   const current = objects.find((o) => o.id === activeId);
@@ -579,7 +600,88 @@ function Studio({
       });
     else await perform();
   };
-  const runCurrent = async (fail = false) => {
+  const finishNodeRun = (request: NodeRunRequest) => {
+    if (nodeRunRequest.current !== request) return;
+    runRequests.current.delete(request.object.id);
+    nodeRunRequest.current = null;
+    setNodeRunPendingId(null);
+    setNodeRunDialog(null);
+    setNodeRunSubmitting(false);
+  };
+  const nodeRunIsCurrent = (request: NodeRunRequest) =>
+    nodeRunRequest.current === request && request.object.id === activeIdRef.current && request.object.workspaceId === widRef.current;
+  useEffect(() => {
+    const pending = nodeRunRequest.current;
+    if (pending && !nodeRunIsCurrent(pending)) {
+      if (pending.phase === "SUBMITTING") setNodeRunDialog(null);
+      else finishNodeRun(pending);
+    }
+  }, [activeId, workspaceId]);
+  const submitNodeRun = async (request: NodeRunRequest, debugParameters?: Record<string, string>) => {
+    if (!nodeRunIsCurrent(request) || ["SAVING", "SUBMITTING"].includes(request.phase)) return;
+    request.phase = "SAVING";
+    setNodeRunSubmitting(true);
+    setNodeRunDialog(dialog => dialog?.request === request ? { ...dialog, error: undefined } : dialog);
+    let keepDialog = false;
+    try {
+      const saved = await saveObject(request.object, request.needsSave);
+      if (!nodeRunIsCurrent(request)) return;
+      if (!saved) throw new Error("节点保存失败，请修正代码或调度配置后重试；本次未创建运行。");
+      request.object = saved;
+      request.needsSave = false;
+      request.phase = "SUBMITTING";
+      const run = await api.run(saved.id, request.fail, "MANUAL", saved.version, undefined, undefined, debugParameters);
+      if (saved.workspaceId === widRef.current) {
+        setRuns(items => [run, ...items]);
+        if (saved.id === activeIdRef.current) {
+          setResultId(run.id);
+          setResultTab("logs");
+        }
+      }
+      message.info(`${runLabel(run)}已提交`);
+    } catch (error) {
+      if (nodeRunIsCurrent(request)) {
+        if (error instanceof ApiError && error.code === "MISSING_DEBUG_PARAMETERS") {
+          try {
+            const prepared = await api.prepareRunParameters(request.object);
+            if (nodeRunIsCurrent(request)) {
+              const overrides = debugParameters ?? prepared.debugParameters;
+              const parameters = effectiveRunParameters(prepared, overrides);
+              setNodeRunDialog({ request, preparation: { ...prepared, debugParameters: overrides, parameters, missingParameters: parameters.filter(row => !row.value).map(row => row.name) }, error: errorText(error) });
+              keepDialog = true;
+            }
+          } catch (prepareError) { if (nodeRunIsCurrent(request)) message.error(errorText(prepareError)); }
+        } else if (nodeRunDialog?.request === request) {
+          setNodeRunDialog(dialog => dialog?.request === request ? { ...dialog, error: errorText(error) } : dialog);
+          keepDialog = true;
+        } else message.error(errorText(error));
+      }
+    } finally {
+      if (nodeRunRequest.current === request) {
+        if (keepDialog) { request.phase = "EDITING"; setNodeRunSubmitting(false); }
+        else finishNodeRun(request);
+      }
+    }
+  };
+  const startNodeRun = async (object: StudioObject, fail: boolean, mode: "NORMAL" | "CUSTOM") => {
+    const request: NodeRunRequest = { object, needsSave: !!drafts[object.id], fail, mode, phase: "PREPARING" };
+    nodeRunRequest.current = request;
+    runRequests.current.add(object.id);
+    setNodeRunPendingId(object.id);
+    try {
+      const preparation = await api.prepareRunParameters(object);
+      if (!nodeRunIsCurrent(request)) return;
+      if (shouldOpenRunParameters(mode, preparation)) {
+        request.phase = "EDITING";
+        setNodeRunDialog({ request, preparation });
+      } else await submitNodeRun(request);
+    } catch (error) {
+      if (nodeRunIsCurrent(request)) message.error(errorText(error));
+      finishNodeRun(request);
+    }
+  };
+  const runCurrent = async (fail = false, parameterMode: "NORMAL" | "CUSTOM" = "NORMAL") => {
+    if (nodeRunRequest.current) return;
     if (
       !active ||
       runRequests.current.has(active.id) ||
@@ -589,6 +691,10 @@ function Studio({
       )
     ) {
       message.info("当前节点已有正在提交或运行的任务");
+      return;
+    }
+    if (active.kind === "NODE") {
+      await startNodeRun(active, fail, parameterMode);
       return;
     }
     const requestedId = active.id;
@@ -903,13 +1009,21 @@ function Studio({
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
+      if (nodeRunDialog && (
+        e.key === "F8" ||
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") ||
+        (e.altKey && e.shiftKey && e.key.toLowerCase() === "f")
+      )) {
+        e.preventDefault();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void saveCurrent();
       }
       if (e.key === "F8") {
         e.preventDefault();
-        void runCurrent();
+        if (!e.shiftKey || active?.kind === "NODE") void runCurrent(false, e.shiftKey ? "CUSTOM" : "NORMAL");
       }
       if (e.key === "F9") {
         e.preventDefault();
@@ -1479,13 +1593,21 @@ function Studio({
                   <div className="toolbar-actions">
                     {isRealWorkflow(active) && <BusinessDateInput size="small" label="开发调试业务日期" value={businessDate} style={{width:140}} onChange={setBusinessDate}/>}
                     <button
-                      disabled={isRunning || active.kind === "FOLDER"}
+                      disabled={isRunning || nodeRunPendingId === active.id || active.kind === "FOLDER"}
                       onClick={() => void runCurrent()}
                       title={isRealWorkflow(active) ? "开发调试 (F8)" : "运行 (F8)"}
                     >
                       <PlayCircle size={15} />
                       <span>{isRealWorkflow(active) ? "开发调试" : "运行"}</span>
                     </button>
+                    {active.kind === "NODE" && <button
+                      disabled={isRunning || nodeRunPendingId === active.id}
+                      onClick={() => void runCurrent(false, "CUSTOM")}
+                      title="带参运行 (Shift+F8)"
+                    >
+                      <Settings2 size={15} />
+                      <span>带参运行</span>
+                    </button>}
                     <button
                       disabled={!isRunning}
                       onClick={() => void stopCurrent()}
@@ -2124,6 +2246,7 @@ function Studio({
               {[
                 ["Ctrl + S", "保存当前文件"],
                 ["F8 / F9", "运行 / 停止当前节点"],
+                ["Shift + F8", "带参运行当前节点"],
                 ["Shift + Alt + F", "格式化 SQL"],
                 ["Ctrl + Shift + E", "打开数据开发"],
                 ["右键目录或文件", "重命名、移动、复制、收藏、删除"],
@@ -2144,6 +2267,16 @@ function Studio({
           </p>
         </div>
       </Modal>
+      {nodeRunDialog && <RunParameterDialog
+        open
+        objectName={nodeRunDialog.request.object.name}
+        mode={nodeRunDialog.request.mode}
+        preparation={nodeRunDialog.preparation}
+        busy={nodeRunSubmitting}
+        error={nodeRunDialog.error}
+        onCancel={() => { if (!nodeRunSubmitting) finishNodeRun(nodeRunDialog.request); }}
+        onRun={values => submitNodeRun(nodeRunDialog.request, values)}
+      />}
       <WorkflowReleases key={`${workflowRelease?.workspaceId || workspaceId}:${workflowRelease?.target?.id || "all"}:${!!workflowRelease}`}
         open={!!workflowRelease} workspaceId={workflowRelease?.workspaceId || workspaceId} target={workflowRelease?.target}
         initialTab={workflowRelease?.tab || "history"} onClose={() => setWorkflowRelease(null)} legacyRecords={records}

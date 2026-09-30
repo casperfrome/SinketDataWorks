@@ -1,0 +1,33 @@
+.run-parameter-dialog { font-size: 12px; }
+.run-parameter-description { margin: 0 0 14px; line-height: 1.8; color: var(--muted); }
+.run-parameter-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+.run-parameter-heading > span { font-weight: 500; }
+.run-parameter-heading .ant-btn,.run-parameter-table .ant-btn { font-size: 12px; padding-inline: 0; }
+.run-parameter-table-wrap { max-height: min(460px, 55vh); overflow: auto; }
+.run-parameter-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
+.run-parameter-table th,.run-parameter-table td { padding: 9px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+.run-parameter-table th { background: var(--hover); font-weight: 400; }
+.run-parameter-table th:nth-child(1) { width: 22%; }
+.run-parameter-table th:nth-child(2) { width: 42%; }
+.run-parameter-table th:nth-child(3) { width: 17%; }
+.run-parameter-table th:nth-child(4) { width: 19%; }
+.run-parameter-table code,.run-parameter-table .ant-input { font-family: Consolas, "Cascadia Code", monospace; font-size: 12px; }
+.run-parameter-table code { overflow-wrap: anywhere; }
+.run-parameter-table .ant-tag { margin-inline-end: 0; font-size: 11px; }
+.run-parameter-value-error,.run-parameter-default { display: block; margin-top: 4px; line-height: 1.5; font-size: 11px; overflow-wrap: anywhere; }
+.run-parameter-value-error { color: var(--ant-color-error, #e46161); }
+.run-parameter-default { color: var(--muted); }
+.run-parameter-default code { white-space: pre-wrap; }
+.run-parameter-submit-error { margin-top: 12px; }
+.run-actual-parameters { margin: 12px 0; font-size: 12px; }
+.run-actual-parameters h4 { margin: 0 0 7px; font-size: 12px; font-weight: 500; }
+.run-actual-parameters dl { margin: 0; border: 1px solid var(--border); }
+.run-actual-parameters dl > div { display: grid; grid-template-columns: minmax(120px, 25%) 1fr; border-bottom: 1px solid var(--border); }
+.run-actual-parameters dl > div:last-child { border-bottom: 0; }
+.run-actual-parameters dt,.run-actual-parameters dd { margin: 0; padding: 7px 10px; min-width: 0; }
+.run-actual-parameters dt { background: var(--hover); border-right: 1px solid var(--border); }
+.run-actual-parameters code { white-space: pre-wrap; overflow-wrap: anywhere; font-family: Consolas, "Cascadia Code", monospace; font-size: 12px; }
+@media (max-width: 600px) {
+  .run-parameter-table { min-width: 540px; }
+  .run-actual-parameters dl > div { grid-template-columns: minmax(90px, 30%) 1fr; }
+}

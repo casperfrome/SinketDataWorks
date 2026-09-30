@@ -4,6 +4,7 @@ import { api } from "../api";
 import type { QueryResult, Run } from "../types";
 import SyncRunDetails from "./SyncRunDetails";
 import WorkflowRunView from "./WorkflowRunView";
+import RunParameters from "./RunParameters";
 import { isPending, runLabel, sourceLabel } from "../state/workflows";
 
 const statementStatuses = { SKIPPED: "未执行", RUNNING: "执行中", SUCCESS: "成功", FAILED: "失败", CANCELLED: "已停止", UNKNOWN: "提交结果未知" };
@@ -51,6 +52,7 @@ export default function RunDetails({ id, tab = "logs" }: { id: string; tab?: str
     </Space>
     {run.businessDate&&<Space wrap><Tag>业务日期 {run.businessDate}</Tag>{run.releaseNo&&<Tag>任务 R{run.releaseNo}</Tag>}{run.buildId&&<Tag>批次 {run.buildId}</Tag>}{run.publicationStatus&&<Tag color={run.publicationStatus==="PUBLISHED"?"green":"default"}>{run.publicationStatus==="PUBLISHED"?"正式结果已发布":run.publicationStatus==="RECOVERING"?"核实提交中":run.publicationStatus==="NOT_PUBLISHED"?"未发布":"生成结果中"}</Tag>}</Space>}
     {!!run.upstreamRuns?.length&&<div className="task-trigger-dependencies"><h4>本次使用的上游</h4>{run.upstreamRuns.map(u=><div key={u.runId}><strong>{u.name||u.taskId}</strong><code>{u.buildId||u.runId}</code></div>)}</div>}
+    <RunParameters parameters={run.scheduleParameters} />
     <pre className="detail-code run-log">{run.logs?.join("\n") || "等待日志…"}</pre>
     {run.errorCode && <Tag color="error">{run.errorCode}</Tag>}
   </div>;
@@ -85,6 +87,7 @@ export default function RunDetails({ id, tab = "logs" }: { id: string; tab?: str
       { key: "submitted", label: "提交时间", children: new Date(run.createdAt).toLocaleString("zh-CN") },
       { key: "status", label: "状态", children: run.status },
     ]} />
+    <RunParameters parameters={run.scheduleParameters} />
     <h4>执行时的代码快照</h4><pre className="detail-code">{run.snapshot?.content || "无代码内容"}</pre>
   </div>;
 }

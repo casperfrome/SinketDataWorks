@@ -49,8 +49,9 @@ public class SyncExecutionService {
     private static String text(Map<String,Object> m,String key){return Objects.toString(m.get(key),"").trim();}
     private static int number(Map<String,Object> m,String key,int fallback,int max){Object v=m.getOrDefault(key,fallback);if(!(v instanceof Number n)||n.doubleValue()!=n.intValue()||n.intValue()<1||n.intValue()>max)throw StudioException.bad("INVALID_SYNC","同步参数无效："+key);return n.intValue();}
     @SuppressWarnings("unchecked") private static List<String> strings(Map<String,Object> m,String key){Object v=m.getOrDefault(key,List.of());if(!(v instanceof List<?> l)||l.size()>1024||l.stream().anyMatch(x->!(x instanceof String)))throw StudioException.bad("INVALID_SYNC","字段列表无效："+key);return (List<String>)v;}
-    public Prepared prepare(StudioObject o){return prepare(o,List.of());}
-    public Prepared prepare(StudioObject o,List<Map<String,String>> inherited){
+    public Prepared prepare(StudioObject o){return prepare(o,List.of(),Map.of());}
+    public Prepared prepare(StudioObject o,List<Map<String,String>> inherited){return prepare(o,inherited,Map.of());}
+    public Prepared prepare(StudioObject o,List<Map<String,String>> inherited,Map<String,Object> options){
         if(!"NODE".equals(o.kind())||!Set.of("离线同步","数据集成").contains(o.nodeType())||!isSync(o))throw StudioException.bad("SYNC_NODE_REQUIRED","请选择离线同步节点");
         var c=new LinkedHashMap<>(config(o));
         if(!Set.of("sourceDataSourceId","targetDataSourceId","sourceTable","targetTable","columns","where","mapping","writeMode","keyColumns","batchRows","timeoutSeconds","parallelism","sourcePartitionFilter","targetPartitionAssignments","targetPartitions").containsAll(c.keySet()))throw StudioException.bad("INVALID_SYNC","存在不支持的同步配置");
@@ -65,8 +66,8 @@ public class SyncExecutionService {
         if("UNSUPPORTED".equals(model))throw StudioException.bad("SYNC_TARGET_MODEL","目标仅支持 MySQL InnoDB、Doris Duplicate Key 或 Unique Key Merge-on-Write");
         var sourceMetadata="DORIS".equals(source.type())?sources.syncMetadata(source,text(c,"sourceTable")):Map.<String,Object>of("columns",sourceColumns);
         var p=new Prepared(o,source,target,Collections.unmodifiableMap(c),targetKey(target,text(c,"targetTable")),model,sourceMetadata,metadata);
-        var preview=newRun(p,"VALIDATE");ScheduleParameters.attach(preview,o,Map.of(),inherited);
-        var previewParameters=new LinkedHashMap<String,Object>(Map.of("bizdate",preview.get("businessDate"),"source_cutoff",Instant.now().toString(),"build_id",preview.get("id")));
+        var preview=newRun(p,"VALIDATE");ScheduleParameters.attach(preview,o,options,inherited);
+        var previewParameters=new LinkedHashMap<String,Object>(Map.of("bizdate",preview.get("businessDate"),"source_cutoff",Objects.toString(options.get("sourceCutoffAt"),Instant.now().toString()),"build_id",preview.get("id")));
         for(String name:SqlParameters.compile(parameterCode(o)).names())if(name.matches("upstream_[A-Za-z][A-Za-z0-9_]{0,31}_build_id"))previewParameters.put(name,preview.get("id"));
         preview.put("parameters",previewParameters);
         client.validate(spec(p,preview));return p;

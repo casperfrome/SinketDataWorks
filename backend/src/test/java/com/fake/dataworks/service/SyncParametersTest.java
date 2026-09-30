@@ -38,4 +38,16 @@ class SyncParametersTest {
         for(String builtin:List.of(":bizdate",":source_cutoff",":build_id",":upstream_orders_build_id"))assertEquals(List.of(builtin.substring(1)),SqlParameters.compile(SyncParameters.parameterCode(builtin)).names());
         assertThrows(RuntimeException.class,()->SqlParameters.compile(SyncParameters.parameterCode("${unclosed")));
     }
+    @Test void assignmentOverridesAreLiteralAndNeverParsedAsNestedTemplates(){
+        for(String literal:List.of("${literal}","${unclosed","$[yyyymmdd-1] $bizdate", "value ${literal} = 中文 O'Reilly \\")) {
+            String resolved=SyncParameters.value("prefix_${value}_suffix",run(literal));
+            assertEquals("prefix_"+literal+"_suffix",resolved);
+            assertEquals(resolved,SyncParameters.partitionValue(resolved,"varchar(4096)"));
+            assertEquals(literal,SyncParameters.compile("name='${value}'",run(literal),false).params().getFirst().get("value"));
+        }
+        for(String malformed:List.of("${unclosed","${value}_${unclosed","${bad-name}","${value} ${}"))
+            assertThrows(RuntimeException.class,()->SyncParameters.value(malformed,run("${literal}")));
+        assertThrows(RuntimeException.class,()->SyncParameters.partitionValue(SyncParameters.value("${value}",run("${literal}")),"DATEV2"));
+        assertEquals("2026-09-29",SyncParameters.partitionValue(SyncParameters.value("${value}",run("20260929")),"DATEV2"));
+    }
 }

@@ -97,6 +97,8 @@ export interface Run {
   statements?: SqlStatementResult[];
   truncated?: boolean;
   errorCode?: string;
+  scheduleParameters?: Record<string, string>;
+  debugParameters?: Record<string, string>;
   dataSource?: DataSource;
   sourceDataSource?:DataSource;targetDataSource?:DataSource;sourceTable?:string;
   writeMode?:string;syncStage?:string;syncMessage?:string;remoteRunId?:string;remoteState?:string;
@@ -184,6 +186,17 @@ export interface Preferences {
 export type Activity = "development" | "datasources" | "recycle";
 export interface ScheduleParameter { name: string; value: string; source: "CODE" | "MANUAL" }
 export interface ParameterPreview { businessDate: string; scheduledAt: string; timezone: string; values: Record<string,string> }
+export interface RunParameterValue {
+  name: string;
+  value?: string;
+  defaultValue?: string;
+  source: "DEBUG" | "SCHEDULE" | "MISSING";
+}
+export interface RunParameterPreparation {
+  parameters: RunParameterValue[];
+  debugParameters: Record<string, string>;
+  missingParameters: string[];
+}
 
 export interface SyncConfig {
  sourceDataSourceId?:string;targetDataSourceId?:string;sourceTable?:string;targetTable?:string;

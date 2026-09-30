@@ -7,6 +7,7 @@ import type {
   ObjectInput,
   ObjectVersion,
   Run,
+  RunParameterPreparation,
   StudioRecord,
   Preferences,
   DataSource, DataSourceInput, QueryResult, RunPage, WorkflowRelease,
@@ -88,8 +89,10 @@ export const api = {
     (await request<RunPage>(`/runs?workspaceId=${encodeURIComponent(wid)}&summary=true`)).items,
   runPage: (wid: string, page = 1, status = "", search = "") =>
     request<RunPage>(`/runs?workspaceId=${encodeURIComponent(wid)}&summary=true&page=${page}&pageSize=12&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}`),
-  run: (objectId: string, simulateFailure = false, mode = "MANUAL", expectedVersion?: number, expectedNodeVersions?: Record<string, number>, businessDate?: string) =>
-    request<Run>("/runs", json("POST", { objectId, simulateFailure, mode, expectedVersion, expectedNodeVersions, businessDate })),
+  prepareRunParameters: (object: StudioObject) =>
+    request<RunParameterPreparation>("/runs/parameters/prepare", json("POST", { object })),
+  run: (objectId: string, simulateFailure = false, mode = "MANUAL", expectedVersion?: number, expectedNodeVersions?: Record<string, number>, businessDate?: string, debugParameters?: Record<string, string>) =>
+    request<Run>("/runs", json("POST", { objectId, simulateFailure, mode, expectedVersion, expectedNodeVersions, businessDate, debugParameters })),
   runNodes: (id: string) => request<Run[]>(`/runs/${id}/nodes`),
   workflowReleases: (workspaceId: string, workflowId = "") => request<WorkflowRelease[]>(`/workflow-releases?workspaceId=${encodeURIComponent(workspaceId)}&workflowId=${encodeURIComponent(workflowId)}`),
   workflowRelease: (id: string) => request<WorkflowRelease>(`/workflow-releases/${id}`),

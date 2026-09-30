@@ -9,6 +9,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class LocalSimulationProvider implements ExecutionProvider {
@@ -35,9 +37,19 @@ public class LocalSimulationProvider implements ExecutionProvider {
     void shutdown() { worker.shutdownNow(); }
     @Override
     public synchronized Map<String,Object> start(StudioObject snapshot,String mode,boolean fail) {
+        return start(snapshot,mode,fail,Map.of());
+    }
+    public synchronized Map<String,Object> start(StudioObject snapshot,String mode,boolean fail,Map<String,Object> options) {
         Map<String,Object> r=new LinkedHashMap<>(); String id=UUID.randomUUID().toString();
-        r.put("id",id);r.put("workspaceId",snapshot.workspaceId());r.put("objectId",snapshot.id());r.put("objectName",snapshot.name());r.put("status","QUEUED");r.put("mode",mode==null?"MANUAL":mode);r.put("simulation",true);r.put("logs",new ArrayList<>(List.of("[本地模拟] 已创建运行，代码和配置快照已保存。","[本地模拟] 等待本地演示资源。")));r.put("columns",List.of());r.put("rows",List.of());r.put("createdAt",ObjectService.now());
-        repo.insertRun(r,snapshot); worker.schedule(()->begin(id,fail),queueMs,TimeUnit.MILLISECONDS); return r;
+        r.put("id",id);r.put("workspaceId",snapshot.workspaceId());r.put("objectId",snapshot.id());r.put("objectName",snapshot.name());r.put("objectVersion",snapshot.version());r.put("provider","SIMULATION");r.put("status","QUEUED");r.put("mode",mode==null?"MANUAL":mode);r.put("simulation",true);r.put("logs",new ArrayList<>(List.of("[本地模拟] 已创建运行，代码和配置快照已保存。","[本地模拟] 等待本地演示资源。")));r.put("columns",List.of());r.put("rows",List.of());r.put("createdAt",ObjectService.now());
+        if(options.containsKey("scheduleParameters")) {
+            ScheduleParameters.attach(r,snapshot,options,List.of());
+            r.put("sourceCutoffAt",options.get("sourceCutoffAt"));r.put("parameters",Map.of("bizdate",r.get("businessDate"),"source_cutoff",options.get("sourceCutoffAt"),"build_id",id));
+        }
+        repo.insertRun(r,snapshot);
+        if(TransactionSynchronizationManager.isSynchronizationActive())TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){@Override public void afterCommit(){worker.schedule(()->begin(id,fail),queueMs,TimeUnit.MILLISECONDS);}});
+        else worker.schedule(()->begin(id,fail),queueMs,TimeUnit.MILLISECONDS);
+        return r;
     }
     private synchronized void begin(String id,boolean fail) {
         Map<String,Object> r=repo.run(id).orElse(null); if(r==null||!r.get("status").equals("QUEUED")) return;
