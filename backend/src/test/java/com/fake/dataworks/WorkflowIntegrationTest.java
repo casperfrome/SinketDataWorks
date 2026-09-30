@@ -34,7 +34,7 @@ class WorkflowIntegrationTest {
     @LocalServerPort int port;
     String workspace,sourceId;
     @BeforeEach void setup() {
-        workspace="workflow-test-"+UUID.randomUUID();jdbc.update("INSERT INTO dw_workspace VALUES(?,?,?,?)",workspace,"工作流测试",workspace,"local");
+        workspace="workflow-test-"+UUID.randomUUID();jdbc.update("INSERT INTO dw_workspace(id,name,code,region,workspace_type) VALUES(?,?,?,?,'TEST')",workspace,"工作流测试",workspace,"local");
         sourceId=sources.save(null,Map.of("workspaceId",workspace,"name","Test source","host","127.0.0.1","port",3307,"database","studio_demo","username","studio_reader","password",password)).get("id").toString();
     }
     @AfterEach void cleanup() throws Exception {

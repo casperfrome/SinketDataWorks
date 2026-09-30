@@ -189,6 +189,56 @@ button:focus-visible {
 .workspace-option > svg {
   color: var(--muted);
 }
+.workspace-popup-footer {
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 4px;
+}
+.workspace-description {
+  color: var(--muted);
+  margin: 12px 0 20px;
+}
+.workspace-manager-toolbar {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.workspace-manager-toolbar .ant-input-search {
+  max-width: 320px;
+}
+.workspace-list-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+.workspace-list-name strong {
+  display: block;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.workspace-list-name small {
+  display: block;
+  color: var(--muted);
+  font-family: Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.workspace-created-row > td {
+  background: var(--selected) !important;
+}
+.workspace-create {
+  max-width: 560px;
+  margin: 8px auto 0;
+}
+.workspace-environment {
+  display: flex;
+  align-items: flex-start;
+  color: var(--muted);
+}
+@media (max-width: 600px) {
+  .workspace-manager-toolbar { flex-wrap: wrap; }
+}
 .environment-selector {
   color: var(--muted);
   padding: 0 14px;

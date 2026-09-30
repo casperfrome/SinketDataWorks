@@ -2,6 +2,7 @@ package com.fake.dataworks.controller;
 
 import com.fake.dataworks.domain.StudioObject;
 import com.fake.dataworks.dto.ObjectInput;
+import com.fake.dataworks.dto.WorkspaceInput;
 import com.fake.dataworks.service.*;
 import java.util.*;
 import org.springframework.http.*;
@@ -15,6 +16,7 @@ public class StudioController {
     private final WorkspaceService workspaces;private final ObjectService objects;private final RunService executions;private final RecordService records;private final FileService files;
     public StudioController(WorkspaceService workspaces,ObjectService objects,RunService executions,RecordService records,FileService files) {this.workspaces=workspaces;this.objects=objects;this.executions=executions;this.records=records;this.files=files;}
     @GetMapping("/workspaces") public Object workspaces() {return workspaces.workspaces();}
+    @PostMapping("/workspaces") @ResponseStatus(HttpStatus.CREATED) public Object createWorkspace(@RequestBody WorkspaceInput input) {return workspaces.create(input);}
     @GetMapping("/objects") public Object objects(@RequestParam(defaultValue="local-workspace") String workspaceId,@RequestParam(defaultValue="false") boolean deleted) {return objects.list(workspaceId,deleted);}
     @GetMapping("/objects/{id}") public StudioObject object(@PathVariable String id) {return objects.get(id);}
     @PostMapping("/objects") @ResponseStatus(HttpStatus.CREATED) public StudioObject create(@RequestBody ObjectInput input) {return objects.create(input);}

@@ -49,7 +49,7 @@ class InventoryIntegrationTest {
         }
         business=new JdbcTemplate(new DriverManagerDataSource("jdbc:mysql://127.0.0.1:3307/"+schema+"?allowPublicKeyRetrieval=true&characterEncoding=UTF-8","root",System.getenv("INVENTORY_TEST_ROOT_PASSWORD")));
         day1=business.queryForObject("SELECT first_day FROM inventory_demo_config",LocalDate.class);day2=day1.plusDays(1);
-        jdbc.update("INSERT INTO dw_workspace VALUES(?,?,?,?)",workspace,"库存集成测试",workspace,"local");
+        jdbc.update("INSERT INTO dw_workspace(id,name,code,region,workspace_type) VALUES(?,?,?,?,'TEST')",workspace,"库存集成测试",workspace,"local");
         var config=new LinkedHashMap<String,Object>(Map.of("workspaceId",workspace,"name","库存测试源","host","127.0.0.1","port",3307,"database",schema,"username",user,"password",password));config.put("materializationEnabled",true);config.put("materializationTargets",InventorySql.TARGETS);
         sourceId=sources.save(null,config).get("id").toString();nodes=new ArrayList<>();
         var sql=List.of(InventorySql.dwd(),InventorySql.dws(),InventorySql.ads());

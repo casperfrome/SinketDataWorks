@@ -25,7 +25,7 @@ class MysqlQueryIntegrationTest {
     @LocalServerPort int port;
     String workspace,sourceId;
     @BeforeEach void setup() {
-        workspace="query-test-"+UUID.randomUUID();jdbc.update("INSERT INTO dw_workspace VALUES(?,?,?,?)",workspace,"查询测试",workspace,"local");
+        workspace="query-test-"+UUID.randomUUID();jdbc.update("INSERT INTO dw_workspace(id,name,code,region,workspace_type) VALUES(?,?,?,?,'TEST')",workspace,"查询测试",workspace,"local");
         sourceId=sources.save(null,sourceInput(password)).get("id").toString();
     }
     @AfterEach void cleanup() throws Exception {

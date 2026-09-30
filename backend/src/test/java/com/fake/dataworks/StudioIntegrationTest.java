@@ -24,7 +24,7 @@ class StudioIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired FileService files;
     String workspace;
-    @BeforeEach void setup() {workspace="test-"+UUID.randomUUID();jdbc.update("INSERT INTO dw_workspace(id,name,code,region) VALUES(?,?,?,?)",workspace,"自动测试隔离空间",workspace,"local");}
+    @BeforeEach void setup() {workspace="test-"+UUID.randomUUID();jdbc.update("INSERT INTO dw_workspace(id,name,code,region,workspace_type) VALUES(?,?,?,?,'TEST')",workspace,"自动测试隔离空间",workspace,"local");}
     @AfterEach void cleanup() throws Exception {
         for(Map<String,Object> run:repo.runs(workspace)) execution.stop(run.get("id").toString());
         var storageNames=jdbc.queryForList("SELECT DISTINCT storage_name FROM dw_file WHERE object_id IN (SELECT id FROM dw_object WHERE workspace_id=?)",String.class,workspace);
@@ -42,7 +42,7 @@ class StudioIntegrationTest {
         StudioObject root=create(null,"FOLDER","数仓");StudioObject child=create(root.id(),"FOLDER","ods");
         assertEquals("NAME_CONFLICT",assertThrows(StudioException.class,()->create(null,"FOLDER","数仓")).code());
         assertEquals("DIRECTORY_CYCLE",assertThrows(StudioException.class,()->service.update(root.id(),input(child.id(),"FOLDER","数仓","",root.version()))).code());
-        assertEquals("WORKSPACE_MISMATCH",assertThrows(StudioException.class,()->service.create(new ObjectInput("sandbox",root.id(),"NODE","MySQL","跨工作空间","","",Map.of(),List.of(),false,null))).code());
+        assertEquals("WORKSPACE_MISMATCH",assertThrows(StudioException.class,()->service.create(new ObjectInput("local-workspace",root.id(),"NODE","MySQL","跨工作空间","","",Map.of(),List.of(),false,null))).code());
     }
     @Test void preservesContentOnVersionConflictAndRestoresSnapshots() {
         StudioObject original=create(null,"NODE","版本测试");String versionId=repo.versions(original.id()).getFirst().get("id").toString();

@@ -100,6 +100,7 @@ import type {
 import StudioEditor from "./components/StudioEditor";
 import Inspector from "./components/Inspector";
 import DatasourceView from "./components/DatasourceView";
+import WorkspaceManager from "./components/WorkspaceManager";
 import RunDetails from "./components/RunDetails";
 import WorkflowReleases from "./components/WorkflowReleases";
 import BusinessDateInput from "./components/BusinessDateInput";
@@ -252,6 +253,7 @@ function Studio({
   const { message, modal } = AntApp.useApp();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]),
     [workspaceId, setWorkspaceId] = useState("local-workspace");
+  const [workspaceManagerOpen, setWorkspaceManagerOpen] = useState(false);
   const [objects, setObjects] = useState<StudioObject[]>([]),
     [runs, setRuns] = useState<Run[]>([]),
     [records, setRecords] = useState<StudioRecord[]>([]);
@@ -541,6 +543,7 @@ function Studio({
   const tabMenu=(anchor:string)=>({items:(Object.keys(tabCloseLabels) as TabCloseAction[]).map(key=>({key,label:tabCloseLabels[key],disabled:!tabsToClose(tabs,anchor,key,new Set([...Object.keys(drafts),...Object.keys(scheduleDrafts)])).length})),onClick:({key}:{key:string})=>closeTabs(tabsToClose(tabs,anchor,key as TabCloseAction,new Set([...Object.keys(drafts),...Object.keys(scheduleDrafts)])))});
   const publishTask=async(id:string)=>{const object=drafts[id]||objects.find(o=>o.id===id);if(!object)return;const saved=await saveObject(object,!!drafts[id]);if(!saved)return;return api.publishTask(id,saved.version,"任务独立发布");};
   const switchWorkspace = async (id: string) => {
+    if (id === widRef.current) return;
     const perform = async () => {
       try {
         const [os, rs, recs] = await Promise.all([
@@ -1066,23 +1069,7 @@ function Studio({
             </span>
           </div>
           <div className="header-divider" />
-          <Dropdown
-            menu={{
-              items: [
-                { key: "cn-beijing", label: "华北2（北京）" },
-                { key: "cn-shanghai", label: "华东2（上海）" },
-              ],
-              onClick: ({ key }) =>
-                message.info(
-                  `地域展示：${key === "cn-beijing" ? "华北2（北京）" : "华东2（上海）"}。本地元数据不受地域影响。`,
-                ),
-            }}
-          >
-            <button className="header-select region-select">
-              华北2（北京）
-              <ChevronDown size={12} />
-            </button>
-          </Dropdown>
+          <span className="header-select region-select">{workspace?.region || "本地"}</span>
           <div className="header-divider" />
           <Select
             aria-label="工作空间"
@@ -1090,6 +1077,7 @@ function Studio({
             variant="borderless"
             value={workspaceId}
             onChange={(id) => void switchWorkspace(id)}
+            popupRender={menu => <>{menu}<div className="workspace-popup-footer"><Button type="text" block icon={<Settings2 size={14} />} onClick={() => setWorkspaceManagerOpen(true)}>工作空间管理</Button></div></>}
             options={workspaces.map((w) => ({
               value: w.id,
               label: (
@@ -1103,17 +1091,21 @@ function Studio({
               ),
             }))}
           />
+          <Tool label="工作空间管理" icon={Settings2} onClick={() => setWorkspaceManagerOpen(true)} />
           <div className="header-divider" />
           <div className="header-fill" />
           <Dropdown
             menu={{
               items: [
+                { key: "workspace", label: "工作空间管理" },
                 { key: "settings", label: "工作台设置" },
                 { key: "release", label: "发布记录" },
                 { key: "help", label: "使用帮助" },
               ],
               onClick: ({ key }) =>
-                key === "settings"
+                key === "workspace"
+                  ? setWorkspaceManagerOpen(true)
+                  : key === "settings"
                   ? setSettings(true)
                   : key === "help"
                     ? setHelp(true)
@@ -2056,6 +2048,10 @@ function Studio({
           )}
         </Form>
       </Modal>
+      {workspaceManagerOpen && <WorkspaceManager workspaces={workspaces} currentId={workspaceId}
+        onClose={() => setWorkspaceManagerOpen(false)}
+        onCreated={created => setWorkspaces(current => [...current, created])}
+        onEnter={id => { setWorkspaceManagerOpen(false); void switchWorkspace(id); }} />}
       <Drawer
         title="工作台设置"
         open={settings}

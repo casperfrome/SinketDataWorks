@@ -16,7 +16,8 @@ public class StudioRepository {
         this.jdbc=jdbc; this.json=json;
         this.mapper=(r,n)->new StudioObject(r.getString("id"),r.getString("workspace_id"),r.getString("parent_id"),r.getString("kind"),r.getString("node_type"),r.getString("name"),r.getString("description"),r.getString("content"),json.map(r.getString("config_json")),json.strings(r.getString("tags_json")),r.getBoolean("favorite"),r.getBoolean("deleted"),r.getInt("version"),r.getString("owner"),r.getString("updated_at"));
     }
-    public List<Map<String,Object>> workspaces() { return jdbc.query("SELECT * FROM dw_workspace ORDER BY id",(r,n)->Map.of("id",r.getString("id"),"name",r.getString("name"),"code",r.getString("code"),"region",r.getString("region"))); }
+    public List<Map<String,Object>> workspaces() { return jdbc.query("SELECT * FROM dw_workspace WHERE workspace_type IN ('DEFAULT','USER') ORDER BY workspace_type='DEFAULT' DESC,name,id",(r,n)->Map.of("id",r.getString("id"),"name",r.getString("name"),"code",r.getString("code"),"region",r.getString("region"),"type",r.getString("workspace_type"))); }
+    public void insertWorkspace(Map<String,Object> workspace) { jdbc.update("INSERT INTO dw_workspace(id,name,code,region,workspace_type) VALUES(?,?,?,?,'USER')",workspace.get("id"),workspace.get("name"),workspace.get("code"),workspace.get("region")); }
     public boolean workspaceExists(String id) { return jdbc.queryForObject("SELECT COUNT(*) FROM dw_workspace WHERE id=?",Integer.class,id)>0; }
     public void lockWorkspace(String id) { jdbc.queryForObject("SELECT id FROM dw_workspace WHERE id=? FOR UPDATE",String.class,id); }
     public Optional<StudioObject> find(String id) { return jdbc.query("SELECT * FROM dw_object WHERE id=?",mapper,id).stream().findFirst(); }

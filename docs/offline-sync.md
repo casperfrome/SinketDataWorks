@@ -114,4 +114,4 @@ mvn.cmd -B -ntp "-Dtest=*Test,!*IntegrationTest" test
 
 故障脚本会重启 `.runtime/sync-backend.pid` 指向的验收后端，要求进程运行名含 `data-studio-sync` 的 JAR。验收前应构建当前后端，将 `backend/target/data-studio-0.0.1-SNAPSHOT.jar` 复制到 `.runtime/data-studio-sync.jar`，从 `backend` 目录启动专用验收后端并记录正确 PID；不要填写日常后端或其他进程的 PID。Dunnelean 引擎应已运行并保持原状态库。
 
-脚本默认保留自己的示例供查看，确认不再需要后，可给 `test-sync.py` 添加 `--cleanup`，只清理 `.runtime/sync-live-fixture.json` 所指向的当前夹具。单元测试通过不代表真实数据库同步验收通过。
+脚本将验收空间标记为 `TEST`，不会出现在日常工作空间列表中；验收数据仍可通过其空间 ID 的 API 查询。脚本默认保留自己的示例，确认不再需要后，可给 `test-sync.py` 添加 `--cleanup`，只清理 `.runtime/sync-live-fixture.json` 所指向的当前夹具。单元测试通过不代表真实数据库同步验收通过。

@@ -2,6 +2,7 @@ import type { ScheduleParameter, ParameterPreview, TaskRelease, TaskSchedule, Ta
 import type {
   SyncMetadata,
   Workspace,
+  WorkspaceInput,
   StudioObject,
   ObjectInput,
   ObjectVersion,
@@ -59,6 +60,7 @@ export const api = {
   syncBatches:(id:string)=>request<{batches:Record<string,unknown>[]}>(`/runs/${id}/sync/batches`),
   resolveSync:(id:string,note:string)=>request<Run>(`/runs/${id}/sync/resolve`,json("POST",{note})),
   workspaces: () => request<Workspace[]>("/workspaces"),
+  createWorkspace: (input: WorkspaceInput) => request<Workspace>("/workspaces", json("POST", input)),
   objects: (workspaceId: string, deleted = false) =>
     request<StudioObject[]>(
       `/objects?workspaceId=${encodeURIComponent(workspaceId)}&deleted=${deleted}`,

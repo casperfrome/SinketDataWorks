@@ -11,6 +11,6 @@ public class SeedData implements ApplicationRunner {
     private final JdbcTemplate jdbc;
     public SeedData(JdbcTemplate jdbc) {this.jdbc=jdbc;}
     @Override public void run(ApplicationArguments args) {
-        jdbc.update("INSERT IGNORE INTO dw_workspace(id,name,code,region) VALUES('local-workspace','数据开发工作空间','dataworks_local','华北2（北京）'),('sandbox','沙箱工作空间','dataworks_sandbox','华东1（杭州）')");
+        jdbc.update("INSERT IGNORE INTO dw_workspace(id,name,code,region,workspace_type) VALUES('local-workspace','数据开发工作空间','dataworks_local','本地','DEFAULT')");
     }
 }

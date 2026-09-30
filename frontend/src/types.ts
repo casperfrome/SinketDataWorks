@@ -14,7 +14,9 @@ export interface Workspace {
   name: string;
   code: string;
   region: string;
+  type: "DEFAULT" | "USER";
 }
+export interface WorkspaceInput { name: string; code: string }
 export interface StudioObject {
   id: string;
   workspaceId: string;

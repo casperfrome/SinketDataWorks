@@ -87,7 +87,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/init-db.ps1
 # 也可通过 -ContainerId 显式选择容器。
 ```
 
-脚本读取 `DB_PASSWORD`，未提供时读取本地配置，只创建默认元数据库。后端首次启动通过 Flyway 建表，初始化工作空间身份，开发目录和数据源为空。旧版本数据库升级前需备份；V6 会将已有开发对象移入回收站并暂停计划，参见[参数与迁移说明](docs/schedule-parameters.md)。
+脚本读取 `DB_PASSWORD`，未提供时读取本地配置，只创建默认元数据库。后端首次启动通过 Flyway 建表，仅初始化一个「数据开发工作空间」，开发目录和数据源为空。其他空间由用户在顶部空间选择器旁的「工作空间管理」中创建：填写唯一的工作空间名称和显示名，再进入该空间添加文件、数据源。每个空间独立管理开发对象、运行记录和发布版本。
+
+旧版本数据库升级前需备份；V6 会将已有开发对象移入回收站并暂停计划，参见[参数与迁移说明](docs/schedule-parameters.md)。V8 将旧内置沙箱与同步验收空间退出用户列表并暂停其自动计划，保留原有文件、连接与历史记录，用户自建空间保持可见。空间管理流程参考 [DataWorks 创建工作空间](https://help.aliyun.com/zh/dataworks/user-guide/create-a-workspace)；当前实现使用本地环境。
 
 ### 3. 启动后端与前端
 

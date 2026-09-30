@@ -143,7 +143,7 @@ def main():
     for db in (mysql,doris):execute(db,f'CREATE DATABASE `{name}`')
     execute(mysql,f"CREATE USER '{user}'@'%%' IDENTIFIED BY %s",(password,));execute(mysql,f"GRANT ALL ON `{name}`.* TO '{user}'@'%'")
     execute(doris,f"CREATE USER '{user}' IDENTIFIED BY %s",(password,));execute(doris,f"GRANT SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV ON {name}.* TO '{user}'")
-    execute(metadata,'INSERT INTO dw_workspace(id,name,code,region) VALUES(%s,%s,%s,%s)',(wid,'同步验收 '+key,key,'本地'))
+    execute(metadata,"INSERT INTO dw_workspace(id,name,code,region,workspace_type) VALUES(%s,%s,%s,%s,'TEST')",(wid,'同步验收 '+key,key,'本地'))
     columns='id BIGINT NOT NULL, amount DECIMAL(20,6) NULL, big_value DECIMAL(20,0) NULL, note VARCHAR(128) NULL, business_date DATE NULL, event_at DATETIME(6) NULL'
     for table in ('source_rows','returned_rows'):execute(mysql,f'CREATE TABLE `{name}`.`{table}` ({columns}, PRIMARY KEY(id)) ENGINE=InnoDB')
     for table,model in [('target_rows','DUPLICATE'),('unique_rows','UNIQUE')]:

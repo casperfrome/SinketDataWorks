@@ -23,7 +23,7 @@ class MysqlScriptIntegrationTest {
     String workspace,sourceId,table,renamed,view;
     @BeforeEach void setup() {
         String token=UUID.randomUUID().toString().replace("-","");workspace="script-test-"+token;table="rw_"+token;renamed=table+"_r";view=table+"_v";
-        jdbc.update("INSERT INTO dw_workspace VALUES(?,?,?,?)",workspace,"SQL脚本测试",workspace,"local");
+        jdbc.update("INSERT INTO dw_workspace(id,name,code,region,workspace_type) VALUES(?,?,?,?,'TEST')",workspace,"SQL脚本测试",workspace,"local");
         var input=new LinkedHashMap<String,Object>(Map.of("workspaceId",workspace,"name","Unified source","host","127.0.0.1","port",3307,"database","studio_demo","username","studio_reader","password",password));
         input.put("materializationEnabled",false);input.put("materializationTargets",List.of());sourceId=sources.save(null,input).get("id").toString();
         assertFalse(sources.get(sourceId).publicView().containsKey("materializationEnabled"));

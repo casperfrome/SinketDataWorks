@@ -36,7 +36,7 @@ Spring Boot（127.0.0.1:8080）
 | `config` | Gson JSON 编码和幂等工作空间身份初始化 |
 | `exception` | 业务错误码、HTTP 状态和统一错误响应 |
 
-服务层持有写操作的事务边界。对象写入使用工作空间锁、版本条件和唯一键保护；业务逻辑不放在 Controller。没有 ORM 实体自动建表，表结构由 Flyway 的 V1–V7 迁移维护。
+服务层持有写操作的事务边界。对象写入使用工作空间锁、版本条件和唯一键保护；业务逻辑不放在 Controller。没有 ORM 实体自动建表，表结构由 Flyway 的 V1–V8 迁移维护。
 
 ## 前端状态和编辑数据
 
@@ -95,7 +95,7 @@ Spring Boot（127.0.0.1:8080）
 
 | 路由 | 方法和行为 |
 | --- | --- |
-| `/workspaces` | `GET` 工作空间列表 |
+| `/workspaces` | `GET` 默认与自建空间列表；`POST` 创建空白空间，工作空间名称由唯一键保护 |
 | `/objects?workspaceId=…&deleted=…` | `GET` 存活对象或回收站 |
 | `/objects` | `POST` 创建对象 |
 | `/objects/{id}` | `GET` 查询，`PUT` 携版本保存，`DELETE` 软删除 |

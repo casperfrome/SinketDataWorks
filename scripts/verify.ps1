@@ -1,6 +1,6 @@
 ﻿param(
     [string]$BaseUrl = 'http://127.0.0.1:8080',
-    [string]$WorkspaceId = 'sandbox',
+    [string]$WorkspaceId = 'local-workspace',
     [string]$ReportPath
 )
 $ErrorActionPreference = 'Stop'

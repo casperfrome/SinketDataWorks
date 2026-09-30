@@ -17,7 +17,7 @@ mvn.cmd spring-boot:run
 
 日志显示在终端，按 `Ctrl+C` 停止。保持从 `backend` 目录启动，使本地配置和 `backend/storage` 上传路径一致。前端单独启动，见主 README。
 
-Flyway 维护 V1–V7 版本迁移；旧七表数据库需备份并显式建立 V1 基线，见[迁移说明](../docs/mysql-query.md)。`SeedData` 仅补充缺失的工作空间身份，不生成开发文件或连接。默认数据库名为 `fake_dataworks_260927`，可通过连接 URL 指向自己的数据库；辅助初始化及备份脚本使用默认数据库名。
+Flyway 维护 V1–V8 版本迁移；旧七表数据库需备份并显式建立 V1 基线，见[迁移说明](../docs/mysql-query.md)。`SeedData` 仅补充一个默认工作空间，不生成开发文件或连接。V8 将旧内置沙箱和同步验收空间退出用户列表，保留其数据并暂停自动计划；用户自建空间保持可见。默认数据库名为 `fake_dataworks_260927`，可通过连接 URL 指向自己的数据库；辅助初始化及备份脚本使用默认数据库名。
 
 ## 分层与接口
 
@@ -27,7 +27,7 @@ Controller 负责 HTTP/DTO 转换；Service 负责校验、事务和执行提供
 
 | 路径 | 方法 | 用途 |
 |---|---|---|
-| `/workspaces` | GET | 工作空间 |
+| `/workspaces` | GET、POST | 默认与自建空间列表、创建空白空间 |
 | `/objects?workspaceId=&deleted=false` | GET | 对象与回收站 |
 | `/objects`、`/objects/{id}` | POST、GET、PUT、DELETE | 创建、读取、完整保存、软删除 |
 | `/objects/{id}/copy`、`/restore` | POST | 递归复制、恢复本次一并删除的子对象 |
@@ -38,6 +38,8 @@ Controller 负责 HTTP/DTO 转换；Service 负责校验、事务和执行提供
 | `/records`、`/records/{id}` | GET/POST、PATCH | 发布、评审、检查、冒烟、治理、AI、代码管理记录 |
 | `/preferences` | GET、PUT | 本地单用户偏好完整 JSON |
 | `/actuator/health` | GET | 服务与数据库健康状态 |
+
+`POST /workspaces` 接受 `{ "code": "finance_analysis", "name": "财务分析" }`，返回 201 和新空间。`code` 为唯一名称，须为 3–64 位小写字母、数字或下划线，且以字母开头；`name` 为 1–100 字符的显示名。重名返回 409 `WORKSPACE_CODE_CONFLICT`，格式错误返回 400。新空间没有文件、连接或运行记录，环境为本地。`GET /workspaces` 只返回 `DEFAULT` 和 `USER` 空间；验收空间使用 `TEST`，旧内置沙箱使用 `ARCHIVED`，均保留底层数据。
 
 `PUT /objects/{id}` 接受完整对象，需要当前 `version` 和 `parentId`（null 表示根目录）。`owner` 可修改，须为 1–100 个字符且不含控制字符。同目录重名、版本冲突及恢复冲突返回 409；跨工作空间父目录、循环目录和非法 DAG 返回 400。DAG 使用迭代拓扑排序，拒绝重复起终点连线。删除同时软删除当前未删除的后代；恢复不会复活此前单独删除的子对象。
 
