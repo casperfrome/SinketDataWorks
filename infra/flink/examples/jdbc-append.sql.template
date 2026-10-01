@@ -1,0 +1,20 @@
+-- Replace password and a dedicated existing target table name locally.
+-- Physical MySQL table has no primary key: id INT NOT NULL, payload VARCHAR(255).
+-- Re-running this example appends another two rows, including a duplicate id.
+SET 'execution.target' = 'remote';
+SET 'rest.address' = 'jobmanager';
+SET 'rest.port' = '8081';
+
+CREATE TABLE append_sink (id INT, payload STRING) WITH (
+  'connector' = 'jdbc',
+  'url' = 'jdbc:mysql://mysql-rlt:3306/studio_realtime_test?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=UTC',
+  'table-name' = '{{MYSQL_APPEND_TABLE}}',
+  'username' = 'studio_rlt_test',
+  'password' = '{{MYSQL_PASSWORD}}',
+  'driver' = 'com.mysql.cj.jdbc.Driver',
+  'sink.buffer-flush.max-rows' = '1',
+  'sink.buffer-flush.interval' = '1 s'
+);
+
+EXPLAIN INSERT INTO append_sink VALUES (101, 'append_one'), (101, 'append_duplicate');
+INSERT INTO append_sink VALUES (101, 'append_one'), (101, 'append_duplicate');

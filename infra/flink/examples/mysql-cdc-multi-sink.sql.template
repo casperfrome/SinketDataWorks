@@ -1,0 +1,76 @@
+-- Template: replace {{...}} locally. Do not save rendered passwords to Git.
+-- Acceptance writes its exact statements, grouped by session, to .runtime/flink/acceptance-<runID>.sql.
+-- Physical source and JDBC tables: id INT PRIMARY KEY, payload VARCHAR(255).
+-- Physical Doris table: UNIQUE KEY(id), replication_num=1, merge-on-write enabled.
+-- The Kafka topic must exist before submitting the job.
+SET 'execution.target' = 'remote';
+SET 'rest.address' = 'jobmanager';
+SET 'rest.port' = '8081';
+
+CREATE TABLE cdc_source (
+  id INT, payload STRING, PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+  'connector' = 'mysql-cdc',
+  'hostname' = 'mysql-rlt',
+  'port' = '3306',
+  'username' = 'studio_rlt_test',
+  'password' = '{{MYSQL_PASSWORD}}',
+  'database-name' = 'studio_realtime_test',
+  'table-name' = '{{MYSQL_SOURCE_TABLE}}',
+  'server-id' = '{{UNIQUE_CDC_SERVER_ID_RANGE}}',
+  'server-time-zone' = 'UTC',
+  'scan.startup.mode' = 'initial',
+  'scan.incremental.snapshot.enabled' = 'true'
+);
+
+CREATE TABLE jdbc_sink (
+  id INT, payload STRING, PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+  'connector' = 'jdbc',
+  'url' = 'jdbc:mysql://mysql-rlt:3306/studio_realtime_test?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=UTC',
+  'table-name' = '{{MYSQL_SINK_TABLE}}',
+  'username' = 'studio_rlt_test',
+  'password' = '{{MYSQL_PASSWORD}}',
+  'driver' = 'com.mysql.cj.jdbc.Driver',
+  'sink.buffer-flush.max-rows' = '1',
+  'sink.buffer-flush.interval' = '1 s'
+);
+
+CREATE TABLE doris_sink (
+  id INT, payload STRING, PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+  'connector' = 'doris',
+  'fenodes' = 'fe:8030',
+  'benodes' = '{{DORIS_BE_INTERNAL_HTTP}}',
+  'jdbc-url' = 'jdbc:mysql://fe:9030',
+  'table.identifier' = 'studio_realtime_test.{{DORIS_SINK_TABLE}}',
+  'username' = 'studio_rlt_test',
+  'password' = '{{DORIS_PASSWORD}}',
+  'sink.label-prefix' = '{{UNIQUE_LABEL_PREFIX}}',
+  'sink.enable-delete' = 'true',
+  'sink.enable-2pc' = 'true',
+  'sink.properties.format' = 'json',
+  'sink.properties.read_json_by_line' = 'true'
+);
+
+CREATE TABLE upsert_sink (
+  id INT, payload STRING, PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+  'connector' = 'upsert-kafka',
+  'topic' = '{{UPSERT_KAFKA_TOPIC}}',
+  'properties.bootstrap.servers' = 'kafka_rlt_4_3_1:9092',
+  'key.format' = 'json',
+  'value.format' = 'json'
+);
+
+EXPLAIN STATEMENT SET BEGIN
+  INSERT INTO jdbc_sink SELECT id, payload FROM cdc_source;
+  INSERT INTO doris_sink SELECT id, payload FROM cdc_source;
+  INSERT INTO upsert_sink SELECT id, payload FROM cdc_source;
+END;
+
+EXECUTE STATEMENT SET BEGIN
+  INSERT INTO jdbc_sink SELECT id, payload FROM cdc_source;
+  INSERT INTO doris_sink SELECT id, payload FROM cdc_source;
+  INSERT INTO upsert_sink SELECT id, payload FROM cdc_source;
+END;

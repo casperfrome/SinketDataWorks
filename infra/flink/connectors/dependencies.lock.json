@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "base_image": "flink:2.2.1-scala_2.12-java17",
+  "sources": [
+    {
+      "coordinate": "com.fasterxml.jackson.core:jackson-annotations:2.15.3",
+      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-annotations/2.15.3/jackson-annotations-2.15.3.jar",
+      "sha256": "aae865c3d88256d61b11523cb1e88bd48d5b9ad5855fa1fc859504fd2204708a"
+    },
+    {
+      "coordinate": "com.fasterxml.jackson.core:jackson-core:2.15.3",
+      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.15.3/jackson-core-2.15.3.jar",
+      "sha256": "51fab7aad51ed588482edc507fd542747936c5094d1ab76ed21ddb63b96b610d"
+    },
+    {
+      "coordinate": "com.fasterxml.jackson.core:jackson-databind:2.15.3",
+      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.15.3/jackson-databind-2.15.3.jar",
+      "sha256": "c3c53333a2172a80678bda1803e39cff45bec6ae3e9c7d4f44a81ec4e2ab18dc"
+    },
+    {
+      "coordinate": "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.15.3",
+      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/dataformat/jackson-dataformat-yaml/2.15.3/jackson-dataformat-yaml-2.15.3.jar",
+      "sha256": "2dd70a080e8542dc5ee727387abed963fc24122cd784ab38355f87d0e08d9772"
+    },
+    {
+      "coordinate": "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.15.3",
+      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/datatype/jackson-datatype-jdk8/2.15.3/jackson-datatype-jdk8-2.15.3.jar",
+      "sha256": "29995d3677f72dde74bf32bbf268b96beb952492b742d93f4c70af6c44b2156e"
+    },
+    {
+      "coordinate": "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.15.3",
+      "url": "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/datatype/jackson-datatype-jsr310/2.15.3/jackson-datatype-jsr310-2.15.3.jar",
+      "sha256": "bea1d78009ebc4e5d54918a3f7aec5da9fbd09f662c191a217ffcf37e8527c5e"
+    },
+    {
+      "coordinate": "com.google.protobuf:protobuf-java:4.31.1",
+      "url": "https://repo.maven.apache.org/maven2/com/google/protobuf/protobuf-java/4.31.1/protobuf-java-4.31.1.jar",
+      "sha256": "d60dfe7c68a0d38a248cca96924f289dc7e1966a887ee7cae397701af08575ae"
+    },
+    {
+      "coordinate": "com.mysql:mysql-connector-j:26.7.0",
+      "url": "https://repo.maven.apache.org/maven2/com/mysql/mysql-connector-j/26.7.0/mysql-connector-j-26.7.0.jar",
+      "sha256": "69084713593a4aa8d07c383619b9639276f08bccf8faf1c562178147d389b1e1"
+    },
+    {
+      "coordinate": "commons-logging:commons-logging:1.3.5",
+      "url": "https://repo.maven.apache.org/maven2/commons-logging/commons-logging/1.3.5/commons-logging-1.3.5.jar",
+      "sha256": "6d7a744e4027649fbb50895df9497d109f98c766a637062fe8d2eabbb3140ba4"
+    },
+    {
+      "coordinate": "io.micrometer:micrometer-commons:1.14.6",
+      "url": "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-commons/1.14.6/micrometer-commons-1.14.6.jar",
+      "sha256": "18b742923721c5b9718d758d42216c5e7a273779edfc82c93eea7c50a30f8637"
+    },
+    {
+      "coordinate": "io.micrometer:micrometer-core:1.14.6",
+      "url": "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-core/1.14.6/micrometer-core-1.14.6.jar",
+      "sha256": "5494326c07eb7ba7645c0784e8797aad654bee6d3fb625b92b88a07761d902d4"
+    },
+    {
+      "coordinate": "io.micrometer:micrometer-observation:1.14.6",
+      "url": "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-observation/1.14.6/micrometer-observation-1.14.6.jar",
+      "sha256": "a37bac1c3687bcc40d057b37463d0c0d3ad8c1fcc4456003ef1218e1890e580c"
+    },
+    {
+      "coordinate": "io.openlineage:openlineage-java:1.32.0",
+      "url": "https://repo.maven.apache.org/maven2/io/openlineage/openlineage-java/1.32.0/openlineage-java-1.32.0.jar",
+      "sha256": "d575b68bf72996e34d59013c9e877c19c0eea876fcccd49e246287048d09a54b"
+    },
+    {
+      "coordinate": "io.openlineage:openlineage-sql-java:1.32.0",
+      "url": "https://repo.maven.apache.org/maven2/io/openlineage/openlineage-sql-java/1.32.0/openlineage-sql-java-1.32.0.jar",
+      "sha256": "39e9be8f94c64d975eeb2c407937897e9654b69c0f7de3ba4cd47c946e7cf37c"
+    },
+    {
+      "coordinate": "org.apache.commons:commons-lang3:3.17.0",
+      "url": "https://repo.maven.apache.org/maven2/org/apache/commons/commons-lang3/3.17.0/commons-lang3-3.17.0.jar",
+      "sha256": "6ee731df5c8e5a2976a1ca023b6bb320ea8d3539fbe64c8a1d5cb765127c33b4"
+    },
+    {
+      "coordinate": "org.apache.doris:flink-doris-connector-2.2:26.3.0",
+      "url": "https://repo.maven.apache.org/maven2/org/apache/doris/flink-doris-connector-2.2/26.3.0/flink-doris-connector-2.2-26.3.0.jar",
+      "sha256": "cf6ea84b4c0a77e98530b7801a7f83beb143042b2990e2dfd3479d0644c22f65"
+    },
+    {
+      "coordinate": "org.apache.flink:flink-connector-jdbc-core:4.1.0-2.2",
+      "url": "https://repo.maven.apache.org/maven2/org/apache/flink/flink-connector-jdbc-core/4.1.0-2.2/flink-connector-jdbc-core-4.1.0-2.2.jar",
+      "sha256": "f8357ab799095e6486315db4019edf63ced762bc8c2eaa63614c7b962755564b"
+    },
+    {
+      "coordinate": "org.apache.flink:flink-connector-jdbc-mysql:4.1.0-2.2",
+      "url": "https://repo.maven.apache.org/maven2/org/apache/flink/flink-connector-jdbc-mysql/4.1.0-2.2/flink-connector-jdbc-mysql-4.1.0-2.2.jar",
+      "sha256": "4d5cc7a60ac67f4f1f3eadc76ac7b9f591341bb01a3917b593cdd12305c44ecf"
+    },
+    {
+      "coordinate": "org.apache.flink:flink-sql-connector-kafka:5.0.0-2.2",
+      "url": "https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/5.0.0-2.2/flink-sql-connector-kafka-5.0.0-2.2.jar",
+      "sha256": "5605c691d11a501382c383fecba37a7a552467da5ab7ba904ef5d6f3d62c5616"
+    },
+    {
+      "coordinate": "org.apache.flink:flink-sql-connector-mysql-cdc:3.6.0-2.2",
+      "url": "https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-mysql-cdc/3.6.0-2.2/flink-sql-connector-mysql-cdc-3.6.0-2.2.jar",
+      "sha256": "9ad70ad9004de847df17c5bd8cd417ad02a4123dd9928d963881c5713a180356"
+    },
+    {
+      "coordinate": "org.apache.httpcomponents.client5:httpclient5:5.4.3",
+      "url": "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/client5/httpclient5/5.4.3/httpclient5-5.4.3.jar",
+      "sha256": "739e035679c68e15efa93b44c808a453bc98eaac1722e5a80cab15c026223022"
+    },
+    {
+      "coordinate": "org.apache.httpcomponents.core5:httpcore5-h2:5.3.4",
+      "url": "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/core5/httpcore5-h2/5.3.4/httpcore5-h2-5.3.4.jar",
+      "sha256": "1fb4f34e4b612e7c127ad693335583587850b17ce9b1c366f9de1ca49fe2c781"
+    },
+    {
+      "coordinate": "org.apache.httpcomponents.core5:httpcore5:5.3.4",
+      "url": "https://repo.maven.apache.org/maven2/org/apache/httpcomponents/core5/httpcore5/5.3.4/httpcore5-5.3.4.jar",
+      "sha256": "f2b2fd7a0164e8c3120cd8437bc9fea439239e165c17262b3e907daa7e979f80"
+    },
+    {
+      "coordinate": "org.hdrhistogram:HdrHistogram:2.2.2",
+      "url": "https://repo.maven.apache.org/maven2/org/hdrhistogram/HdrHistogram/2.2.2/HdrHistogram-2.2.2.jar",
+      "sha256": "22d1d4316c4ec13a68b559e98c8256d69071593731da96136640f864fa14fad8"
+    },
+    {
+      "coordinate": "org.latencyutils:LatencyUtils:2.0.3",
+      "url": "https://repo.maven.apache.org/maven2/org/latencyutils/LatencyUtils/2.0.3/LatencyUtils-2.0.3.jar",
+      "sha256": "a32a9ffa06b2f4e01c5360f8f9df7bc5d9454a5d373cd8f361347fa5a57165ec"
+    },
+    {
+      "coordinate": "org.yaml:snakeyaml:2.1",
+      "url": "https://repo.maven.apache.org/maven2/org/yaml/snakeyaml/2.1/snakeyaml-2.1.jar",
+      "sha256": "69a4537045ddbcaed4c68eef074462eb12d324d7953f62c5ecd35df645e8aec9"
+    }
+  ]
+}

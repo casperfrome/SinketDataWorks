@@ -6,6 +6,7 @@
 
 - **离线数据开发**：原“数据开发”入口，包含项目与个人目录、SQL / Notebook / 工作流编辑、多标签、草稿保护、版本对比与恢复。
 - **实时数据开发**：位于离线入口下方，支持直接编写 Flink SQL、在任务内配置 Source / Sink、字段结构与 Watermark、生成 DDL 结构预览、独立发布版本及实时运维模拟。详见[实时开发说明](docs/realtime-development.md)。
+- **真实 Flink 运行环境**：独立 Docker Compose 部署 Flink 2.2.1、SQL Gateway 与 Kafka 4.3.1，包含 Kafka、MySQL CDC / JDBC、Doris 连接器及真实链路和状态恢复验收脚本。详见[Flink 运行环境](docs/flink-runtime.md)；实时页面的作业提交仍使用模拟。
 - **真实 MySQL / Doris 执行**：查询、增删改、多语句 SQL、表结构及分区操作、结果分页及取消。
 - **离线发布与调度**：不可变发布版本、Cron、最近一期/全天依赖；调度运维统一查看任务、实例、执行尝试，支持暂停、最新版本重跑、原输入复现和范围补数。见[调度说明](docs/task-scheduling.md)。
 - **数据集成**：MySQL ↔ Doris 批量传输，支持分区筛选、参数或字段分区赋值，以及限定分区覆盖。
@@ -37,9 +38,10 @@
 | 元数据库 | MySQL，已验证环境为 9.7.2，字符集 `utf8mb4` |
 | 可选 Doris SQL | Doris，通过 JDBC 连接业务 schema，无需启动 Dunnelean 服务 |
 | 可选离线同步 | Dunnelean Java SDK 0.1.0、独立 Dunnelean Rust 服务、MySQL 与 Doris |
+| 可选实时运行环境 | Docker Compose、Flink 2.2.1（Java 17）、SQL Gateway、Kafka 4.3.1；连接器构建需要 Maven |
 | 辅助脚本 | PowerShell；同步验收另外需要 Python 和 `pymysql`、`requests`、`psutil` |
 
-基础工作台需要 MySQL、后端及前端。后端构建始终需要先安装 Dunnelean Java SDK；仅使用基础工作台时无需启动 Rust 服务或 Doris。Docker 仅用于容器数据库及相关辅助脚本。以下命令以 Windows PowerShell 为例，`java`、`mvn.cmd`、`node`、`npm.cmd`、`git` 应在 PATH 中。
+基础工作台需要 MySQL、后端及前端。后端构建始终需要先安装 Dunnelean Java SDK；仅使用基础工作台时无需启动 Rust 服务或 Doris。Docker 用于容器数据库及可选的实时运行环境。以下命令以 Windows PowerShell 为例，`java`、`mvn.cmd`、`node`、`npm.cmd`、`git` 应在 PATH 中。
 
 ## 启动
 
@@ -114,6 +116,18 @@ npm.cmd run dev -- --port 5173 --strictPort
 
 日志直接显示在终端，按 `Ctrl+C` 停止对应进程。前端支持热更新；后端源码修改后需重启。端口占用时确认已有服务，前端可通过 `--port` 调整；后端改用 `SERVER_PORT` 时需同步调整 Vite 代理。生产构建输出在 `frontend/dist`，开发服务不用于公网部署。
 
+### 4. 可选：准备真实 Flink 运行环境
+
+已有业务 MySQL `dataworks-demo-mysql` 和 Doris `dunnelean_doris` 网络运行时，在项目根目录执行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-flink.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-flink.ps1
+& D:\PythonVenv\Scripts\python.exe ./scripts/test-flink.py
+```
+
+Flink UI 为 [http://127.0.0.1:8081](http://127.0.0.1:8081)，SQL Gateway 为 `http://127.0.0.1:8083`，宿主机 Kafka 为 `localhost:19092`。启动脚本检查端口、网络、连接器 SHA256 和服务健康；真实验收另外验证 MySQL CDC、JDBC、Doris、Kafka 与 Checkpoint / Savepoint 恢复，完成后停止测试作业并保留容器运行。依赖版本、本地凭据、SQL 模板、报告和停止方式见[Flink 运行环境](docs/flink-runtime.md)。实时页面尚未接入这个集群。
+
 ## 使用
 
 ### 离线数据开发
@@ -169,6 +183,7 @@ PowerShell 文件读取请显式使用 UTF-8。Python 辅助脚本应在已安�
 ```text
 frontend/          React 工作台、编辑器、状态管理及规则测试
 backend/           Spring Boot 后端、Flyway 迁移及单元 / 集成测试
+infra/flink/       独立 Flink / Kafka Compose、镜像和连接器构建配置
 scripts/           数据库初始化、备份、演示 SQL 及验证脚本
 docs/              架构、功能说明及精选历史截图
 .runtime/          本地报告、备份、日志及归档（忽略）
@@ -181,6 +196,7 @@ backend/storage/   默认上传资源目录（忽略）
 - [MySQL ↔ Doris 离线同步](docs/offline-sync.md)
 - [Doris SQL 真实执行](docs/doris-query.md)
 - [实时 Flink SQL 开发与运维预览](docs/realtime-development.md)
+- [Flink 容器、连接器构建与真实验收](docs/flink-runtime.md)
 
 ## 运行与数据边界
 
@@ -188,6 +204,6 @@ backend/storage/   默认上传资源目录（忽略）
 
 普通 SQL 按语句提交，停止或失败不会撤销已提交语句。离线同步按批次写入，清空后覆盖会执行 TRUNCATE，失败可能留下部分目标数据；具体恢复规则见同步文档。
 
-实时模块本次只实现前端：作业状态、吞吐、延迟、Checkpoint、Savepoint 和故障恢复均为演示数据，不连接 Flink 集群或处理业务流。实时配置使用浏览器本地存储，不包含在 MySQL 元数据库备份中；清除站点存储会删除这些本地记录。数据库数据源及表字段浏览仍复用原有后端接口。
+实时页面当前只实现前端：作业状态、吞吐、延迟、Checkpoint、Savepoint 和故障恢复均为演示数据。独立 Flink 容器与验收脚本可执行真实业务流，页面作业提交尚未接入该集群。实时配置使用浏览器本地存储，不包含在 MySQL 元数据库备份中；清除站点存储会删除这些本地记录。数据库数据源及表字段浏览仍复用原有后端接口。
 
 备份需要同时保存元数据库、原加密密钥、上传资源；使用离线同步时另需保留 Dunnelean 状态库。可运行 `scripts/backup-metadata.ps1 -ContainerId 'your-mysql-container'` 备份默认元数据库到 `.runtime/backups`。仓库只包含代码和示例，不包含本机数据库、密码、上传文件或历史验收快照。

@@ -1,0 +1,10 @@
+# Only the runtime image inputs enter the Docker build context.
+**
+!infra/
+!infra/flink/
+!infra/flink/Dockerfile
+!.runtime/
+!.runtime/flink/
+!.runtime/flink/connectors/
+!.runtime/flink/connectors/*.jar
+!.runtime/flink/connectors/manifest.json

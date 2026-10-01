@@ -1,0 +1,130 @@
+name: sinket-realtime
+
+x-flink-environment: &flink-environment
+  JOB_MANAGER_RPC_ADDRESS: jobmanager
+  FLINK_PROPERTIES: |
+    jobmanager.rpc.address: jobmanager
+    jobmanager.bind-host: 0.0.0.0
+    rest.address: jobmanager
+    rest.bind-address: 0.0.0.0
+    rest.port: 8081
+    taskmanager.bind-host: 0.0.0.0
+    jobmanager.memory.process.size: 1024m
+    taskmanager.memory.process.size: 2048m
+    taskmanager.numberOfTaskSlots: 4
+    parallelism.default: 1
+    execution.target: remote
+    execution.checkpointing.interval: 60s
+    execution.checkpointing.mode: EXACTLY_ONCE
+    execution.checkpointing.storage: filesystem
+    execution.checkpointing.dir: file:///opt/flink/state/checkpoints
+    execution.checkpointing.savepoint-dir: file:///opt/flink/state/savepoints
+    execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+    restart-strategy.type: fixed-delay
+    restart-strategy.fixed-delay.attempts: 3
+    restart-strategy.fixed-delay.delay: 10s
+    sql-gateway.endpoint.rest.address: 0.0.0.0
+    sql-gateway.endpoint.rest.port: 8083
+    sql-gateway.session.idle-timeout: 30min
+
+x-flink-common: &flink-common
+  image: sinket-flink:2.2.1-connectors
+  restart: unless-stopped
+  environment: *flink-environment
+  networks:
+    - realtime
+    - doris
+  volumes:
+    - flink-state:/opt/flink/state
+  stop_grace_period: 30s
+
+services:
+  jobmanager:
+    <<: *flink-common
+    container_name: flink-rlt-jobmanager
+    command: jobmanager
+    mem_limit: 1536m
+    ports:
+      - "127.0.0.1:8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8081/overview"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  taskmanager:
+    <<: *flink-common
+    container_name: flink-rlt-taskmanager
+    command: taskmanager
+    mem_limit: 2560m
+    environment:
+      <<: *flink-environment
+      TASK_MANAGER_NUMBER_OF_TASK_SLOTS: "4"
+    depends_on:
+      jobmanager:
+        condition: service_healthy
+
+  sql-gateway:
+    <<: *flink-common
+    container_name: flink-rlt-sql-gateway
+    command: ["/opt/flink/bin/sql-gateway.sh", "start-foreground"]
+    mem_limit: 1536m
+    ports:
+      - "127.0.0.1:8083:8083"
+    depends_on:
+      jobmanager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8083/v1/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  kafka:
+    image: apache/kafka:4.3.1
+    container_name: kafka_rlt_4_3_1
+    restart: unless-stopped
+    mem_limit: 1536m
+    ports:
+      - "127.0.0.1:19092:19092"
+    networks:
+      - realtime
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka_rlt_4_3_1:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: "INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka_rlt_4_3_1:9092,EXTERNAL://localhost:19092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx512m"
+      CLUSTER_ID: "${KAFKA_CLUSTER_ID:-Q8nfqgE4TuSXohQ1GbUVRQ}"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka_rlt_4_3_1:9092 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 45s
+    stop_grace_period: 30s
+
+networks:
+  realtime:
+    external: true
+    name: sinket-realtime
+  doris:
+    external: true
+    name: "${DORIS_DOCKER_NETWORK:-dunnelean_doris}"
+
+volumes:
+  flink-state:
+  kafka-data:
