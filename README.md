@@ -1,18 +1,18 @@
 # SinketDataWorks
 
-参考阿里云 DataWorks / Data Studio 交互的本地数据开发工作台，面向单用户开发与演示。使用 React、Monaco Editor 和 React Flow 提供代码与工作流编辑。离线开发通过 Spring Boot 和 MySQL 持久化文件、版本、发布快照、调度及运行结果；实时开发目前提供独立的 Flink SQL 前端工作台，任务与模拟运维记录保存在当前浏览器。
+参考阿里云 DataWorks / Data Studio 交互的本地数据开发工作台，面向单用户开发与演示。使用 React、Monaco Editor 和 React Flow 提供编辑器。离线与实时任务由 Spring Boot / MySQL 持久化；实时工作台通过 SQL Gateway 提交真实 Flink SQL，支持查询预览、发布、运维与状态恢复。
 
 ## 功能
 
 - **离线数据开发**：原“数据开发”入口，包含项目与个人目录、SQL / Notebook / 工作流编辑、多标签、草稿保护、版本对比与恢复。
-- **实时数据开发**：位于离线入口下方，支持直接编写 Flink SQL、在任务内配置 Source / Sink、字段结构与 Watermark、生成 DDL 结构预览、独立发布版本及实时运维模拟。详见[实时开发说明](docs/realtime-development.md)。
-- **真实 Flink 运行环境**：独立 Docker Compose 部署 Flink 2.2.1、SQL Gateway 与 Kafka 4.3.1，包含 Kafka、MySQL CDC / JDBC、Doris 连接器及真实链路和状态恢复验收脚本。详见[Flink 运行环境](docs/flink-runtime.md)；实时页面的作业提交仍使用模拟。
+- **实时数据开发**：Flink SQL、Source / Sink、字段与 Watermark、受管 DDL、服务端校验与执行计划、SELECT 结果预览、不可变发布及真实作业运维。详见[实时开发说明](docs/realtime-development.md)。
+- **真实 Flink 运行环境**：Flink 2.2.1、SQL Gateway 与 Kafka 4.3.1，包含 Kafka、MySQL CDC / JDBC、Doris 连接器，支持 Checkpoint、Savepoint 恢复和跨发布升级。详见[Flink 运行环境](docs/flink-runtime.md)。
 - **真实 MySQL / Doris 执行**：查询、增删改、多语句 SQL、表结构及分区操作、结果分页及取消。
 - **离线发布与调度**：不可变发布版本、Cron、最近一期/全天依赖；调度运维统一查看任务、实例、执行尝试，支持暂停、最新版本重跑、原输入复现和范围补数。见[调度说明](docs/task-scheduling.md)。
 - **数据集成**：MySQL ↔ Doris 批量传输，支持分区筛选、参数或字段分区赋值，以及限定分区覆盖。
-- **数据源与回收站**：MySQL / Doris 连接测试、真实表与字段浏览、密码加密保存、离线目录与文件恢复；原数据源入口新增 Kafka 配置，其连接参数保存在浏览器、密码只留当前页面会话，连接尚未接入后端。
+- **数据源与回收站**：MySQL / Doris / Kafka 真实连接测试、表字段及 Topic 浏览、密码加密保存、独立 Flink 执行地址，以及离线目录与文件恢复。
 
-离线节点库只提供“数据集成”类别的数据集成，以及“数据库”类别的 MySQL、Doris，均支持真实业务执行；其他空类别已移除。已有其他类型节点保留兼容，运行仍使用本地模拟。实时任务、发布版本和模拟作业独立于离线对象与调度，不会执行 Kafka / Flink / Doris 流式读写。
+离线节点库提供数据集成、MySQL 和 Doris，均支持真实业务执行；其他旧节点保留模拟兼容。实时任务、发布和真实 Flink 作业独立于离线对象与调度。
 
 ## 界面预览
 
@@ -126,7 +126,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-flink.ps
 & D:\PythonVenv\Scripts\python.exe ./scripts/test-flink.py
 ```
 
-Flink UI 为 [http://127.0.0.1:8081](http://127.0.0.1:8081)，SQL Gateway 为 `http://127.0.0.1:8083`，宿主机 Kafka 为 `localhost:19092`。启动脚本检查端口、网络、连接器 SHA256 和服务健康；真实验收另外验证 MySQL CDC、JDBC、Doris、Kafka 与 Checkpoint / Savepoint 恢复，完成后停止测试作业并保留容器运行。依赖版本、本地凭据、SQL 模板、报告和停止方式见[Flink 运行环境](docs/flink-runtime.md)。实时页面尚未接入这个集群。
+Flink UI 为 [http://127.0.0.1:8081](http://127.0.0.1:8081)，SQL Gateway 为 `http://127.0.0.1:8083`，宿主机 Kafka 为 `localhost:19092`。后端默认接入这些控制地址。连接器验收使用 `test-flink.py`，产品 API 验收使用 `test-realtime.py`；详见[Flink 运行环境](docs/flink-runtime.md)。
 
 ## 使用
 
@@ -149,12 +149,12 @@ MySQL/Doris 节点按已注册连接的 schema 名选择对应类型的数据源
 
 ### 实时数据开发
 
-1. 在原“数据源”入口配置 Kafka，或使用已有 MySQL / Doris 数据源。Kafka 的“配置检查”只检查表单配置，不测试实际连通性。
-2. 进入“实时数据开发”，创建 Flink SQL 任务或加载订单模板，在任务内配置 Source、Sink 和字段结构。MySQL / Doris 可通过已有元数据接口导入字段，未知类型需手动确认。
-3. 预览并插入连接 DDL，直接编写处理 SQL；设置运行参数后保存、检查配置并发布。默认 Checkpoint 间隔为 60 秒，配置检查不等同于 Flink SQL 语义校验。
-4. 切换模块内的“实时运维”，选择发布版本启动模拟作业，查看指标、日志、Checkpoint 或生成 Savepoint。停止后可从同版本 Savepoint 恢复；运行中的作业可通过“模拟故障”进入失败状态，再手动重启或恢复。
+1. 在“数据源”配置并测试 Kafka 或 MySQL / Doris，填写 Flink 容器可达的执行地址。
+2. 创建任务，配置 Source、Sink 和字段，或手写引用数据源的 DDL。
+3. 编写 SQL，进行服务端校验、执行计划及 SELECT 预览；保存并发布后才能执行真实 Sink 写入。
+4. 在“实时运维”启动发布版本，查看真实状态、指标、日志及 Checkpoint；可生成 Savepoint、保存状态后停止、恢复、升级或回滚。
 
-实时任务及草稿按工作空间保存到当前浏览器，切换模块、任务或空间后可继续编辑。发布生成独立快照，新草稿和新发布不会替换已启动作业。实时快捷键为 `Ctrl+S` 保存、`F8` 前往运维、`F9` 停止当前任务模拟作业、`Shift+Alt+F` 格式化。详细配置、存储边界和验证方式见[实时开发说明](docs/realtime-development.md)。
+实时任务、发布和运维记录保存在后端；未保存草稿和标签状态按空间保留在浏览器。新草稿与新发布不替换运行作业。快捷键为 `Ctrl+S` 保存、`F8` 前往运维、`F9` 停止当前任务作业、`Shift+Alt+F` 格式化。详见[实时开发说明](docs/realtime-development.md)。
 
 ## 开发与检查
 
@@ -195,7 +195,8 @@ backend/storage/   默认上传资源目录（忽略）
 - [调度参数](docs/schedule-parameters.md) · [任务调度](docs/task-scheduling.md) · [库存日结与调度](docs/inventory-scheduling.md)
 - [MySQL ↔ Doris 离线同步](docs/offline-sync.md)
 - [Doris SQL 真实执行](docs/doris-query.md)
-- [实时 Flink SQL 开发与运维预览](docs/realtime-development.md)
+- [实时 Flink SQL 开发与运维](docs/realtime-development.md)
+- [实时数据开发验收报告](docs/realtime-acceptance-2026-10-02.md)
 - [Flink 容器、连接器构建与真实验收](docs/flink-runtime.md)
 
 ## 运行与数据边界
@@ -204,6 +205,6 @@ backend/storage/   默认上传资源目录（忽略）
 
 普通 SQL 按语句提交，停止或失败不会撤销已提交语句。离线同步按批次写入，清空后覆盖会执行 TRUNCATE，失败可能留下部分目标数据；具体恢复规则见同步文档。
 
-实时页面当前只实现前端：作业状态、吞吐、延迟、Checkpoint、Savepoint 和故障恢复均为演示数据。独立 Flink 容器与验收脚本可执行真实业务流，页面作业提交尚未接入该集群。实时配置使用浏览器本地存储，不包含在 MySQL 元数据库备份中；清除站点存储会删除这些本地记录。数据库数据源及表字段浏览仍复用原有后端接口。
+实时页面执行真实 Flink 作业。预览有行数和时限并自动释放查询资源，生产写入只运行发布版本。状态恢复依赖状态卷及算子兼容性，回滚不能撤销外部已提交数据。任务和发布纳入元数据库备份，原浏览器数据幂等迁移并保留备份；清除站点存储仍会删除未保存草稿及页面状态。
 
 备份需要同时保存元数据库、原加密密钥、上传资源；使用离线同步时另需保留 Dunnelean 状态库。可运行 `scripts/backup-metadata.ps1 -ContainerId 'your-mysql-container'` 备份默认元数据库到 `.runtime/backups`。仓库只包含代码和示例，不包含本机数据库、密码、上传文件或历史验收快照。

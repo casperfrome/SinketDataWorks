@@ -121,7 +121,7 @@ export interface WorkflowRelease {
     nodes: { graphNodeId: string; object: StudioObject }[]; datasourceBindings: DataSource[] };
 }
 export interface DataSource {
-  type:"MYSQL"|"DORIS";options?:{feHttpUrls?:string[];beHttpUrls?:string[];flightUri?:string;flightEndpointMap?:Record<string,string>;httpEndpointMap?:Record<string,string>};
+  type:"MYSQL"|"DORIS";options?:{feHttpUrls?:string[];beHttpUrls?:string[];flightUri?:string;flightEndpointMap?:Record<string,string>;httpEndpointMap?:Record<string,string>;flinkHost?:string;flinkPort?:number;flinkFeHttpUrls?:string[];flinkBeHttpUrls?:string[]};
   id: string; workspaceId: string; name: string; host: string; port: number;
   database: string; username: string; passwordSet: boolean;
 }

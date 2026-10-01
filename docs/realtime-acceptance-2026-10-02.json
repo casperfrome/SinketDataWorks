@@ -1,0 +1,318 @@
+{
+  "date": "2026-10-02",
+  "status": "PASSED",
+  "scope": "Single local Flink cluster, single user; real product API and UI",
+  "versions": {
+    "flink": "2.2.1",
+    "flyway": 12
+  },
+  "backend": {
+    "unitTests": 241,
+    "integrationTests": 108,
+    "total": 349,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "package": "PASSED"
+  },
+  "frontend": {
+    "tests": 86,
+    "typecheck": "PASSED",
+    "build": "PASSED"
+  },
+  "api": {
+    "runId": "20261002_032244_955de3",
+    "checks": [
+      {
+        "name": "cluster_and_gateway",
+        "status": "PASSED",
+        "startedAt": "2026-10-02T03:22:44.877198+08:00",
+        "evidence": {
+          "version": "2.2.1",
+          "gatewayVersion": "2.2.1",
+          "taskmanagers": 1,
+          "slots": 4,
+          "checkpointInterval": "60s"
+        },
+        "finishedAt": "2026-10-02T03:22:44.925578+08:00",
+        "seconds": 0.05
+      },
+      {
+        "name": "isolated_database_fixtures",
+        "status": "PASSED",
+        "startedAt": "2026-10-02T03:22:44.926585+08:00",
+        "evidence": {
+          "mysql": {
+            "binlog_format": "ROW",
+            "binlog_row_image": "FULL",
+            "log_bin": "ON",
+            "server_id": "1",
+            "version": "9.7.2",
+            "cdc_server_time_zone": "UTC"
+          },
+          "database": "studio_realtime_test",
+          "mysqlTables": 4,
+          "dorisTables": 1
+        },
+        "finishedAt": "2026-10-02T03:22:45.283862+08:00",
+        "seconds": 0.34
+      },
+      {
+        "name": "product_datasources",
+        "status": "PASSED",
+        "startedAt": "2026-10-02T03:22:45.286212+08:00",
+        "evidence": {
+          "workspaceId": "b124a7b2-71c4-4a9a-bf71-5fb7074eb3d9",
+          "dataSources": 3
+        },
+        "finishedAt": "2026-10-02T03:22:45.428865+08:00",
+        "seconds": 0.14
+      },
+      {
+        "name": "product_metadata_rules",
+        "status": "PASSED",
+        "startedAt": "2026-10-02T03:22:45.430999+08:00",
+        "evidence": {
+          "conflictProtected": true,
+          "inlineCredentialsRejected": true,
+          "previewWriteRejected": true,
+          "physicalSchemaVerified": true,
+          "legacyImportIdempotent": true
+        },
+        "finishedAt": "2026-10-02T03:22:46.583431+08:00",
+        "seconds": 1.16
+      },
+      {
+        "name": "product_kafka_json_csv",
+        "status": "PASSED",
+        "startedAt": "2026-10-02T03:22:46.585433+08:00",
+        "evidence": {
+          "json": {
+            "jobId": "9f00a0295a2b774762f3b7ff2d14cd3d",
+            "rows": 2
+          },
+          "csv": {
+            "jobId": "07c5f3135a49f66c5825a24b0607a00d",
+            "rows": 2
+          }
+        },
+        "finishedAt": "2026-10-02T03:23:21.108728+08:00",
+        "seconds": 34.51
+      },
+      {
+        "name": "product_select_preview",
+        "status": "PASSED",
+        "startedAt": "2026-10-02T03:23:21.109730+08:00",
+        "evidence": {
+          "operationId": "13759ab4-0a6e-4398-b662-b065cde20d19",
+          "rows": 2,
+          "streamingTimeout": true,
+          "streamingCancel": true
+        },
+        "finishedAt": "2026-10-02T03:24:14.245419+08:00",
+        "seconds": 53.14
+      },
+      {
+        "name": "product_cdc_multi_sink_changes",
+        "status": "PASSED",
+        "startedAt": "2026-10-02T03:24:14.247416+08:00",
+        "evidence": {
+          "jobId": "90a099a0a7860ee7ad147553d4573ab5",
+          "finalRows": {
+            "1": "updated_one",
+            "3": "insert_three"
+          },
+          "statementSet": true,
+          "concurrentCdcPreview": true,
+          "automaticCdcServerId": true
+        },
+        "finishedAt": "2026-10-02T03:25:23.266097+08:00",
+        "seconds": 69.02
+      },
+      {
+        "name": "product_cdc_server_id_isolation",
+        "status": "PASSED",
+        "startedAt": "2026-10-02T03:25:23.267096+08:00",
+        "evidence": {
+          "overlapRejected": true,
+          "originalReaderUnaffected": true,
+          "terminalRangeReusable": true
+        },
+        "finishedAt": "2026-10-02T03:25:43.203872+08:00",
+        "seconds": 19.94
+      },
+      {
+        "name": "product_checkpoint_and_savepoint_restore",
+        "status": "PASSED",
+        "startedAt": "2026-10-02T03:25:43.204458+08:00",
+        "evidence": {
+          "jobId": "9819<redacted>2ad4e74f7fb99256683c5864",
+          "savepoint": "file:/opt/flink/state/savepoints/savepoint-90a099-b76b000ca8a0",
+          "defaultRestartRestoresState": true,
+          "finalRows": {
+            "1": "updated_one",
+            "3": "insert_three",
+            "4": "after_checkpoint",
+            "6": "api_restored"
+          }
+        },
+        "finishedAt": "2026-10-02T03:26:18.057761+08:00",
+        "seconds": 34.86
+      },
+      {
+        "name": "product_upgrade_failure_and_rollback",
+        "status": "PASSED",
+        "startedAt": "2026-10-02T03:26:18.059760+08:00",
+        "evidence": {
+          "upgradeJobId": "c6e64c55-7013-4e61-bb00-fabf8e46557c",
+          "failedOperation": "f31d3373-5e99-4261-8f5a-b6d0d4538fcb",
+          "rollbackJobId": "1c7331e8-7118-4ecb-ad61-00129d4e18da",
+          "aggregateOperators": 1,
+          "aggregateStateVerified": true,
+          "finalRows": {
+            "1": "updated_one",
+            "3": "insert_three",
+            "4": "after_checkpoint",
+            "6": "api_restored",
+            "7": "upgraded",
+            "8": "rolled_back"
+          }
+        },
+        "finishedAt": "2026-10-02T03:27:10.701955+08:00",
+        "seconds": 52.64
+      }
+    ],
+    "cleanup": {
+      "status": "PASSED",
+      "jobsCanceledOrTerminal": 11,
+      "sessionsClosed": 0,
+      "errors": [],
+      "containersKeptRunning": true,
+      "fixturesKept": true,
+      "productCancelErrors": []
+    }
+  },
+  "backendRestart": {
+    "status": "PASSED",
+    "workspaceId": "b124a7b2-71c4-4a9a-bf71-5fb7074eb3d9",
+    "taskId": "293d8068-334e-4baf-ba0a-40473911e812",
+    "operationId": "81fe016d-9a5c-4f3d-aa4f-2995a7bf38ae",
+    "jobId": "58977e4c-8a92-4730-a6a8-c777e79a2f65",
+    "flinkJobId": "305308d353d5cf9ad84ad1c30e1c7df8",
+    "beforeRestart": "RUNNING",
+    "backendStoppedRemoteState": "RUNNING",
+    "afterRestartSameJobId": true,
+    "duplicateStartRejected": true,
+    "originalRequestIdempotent": true,
+    "cleanupRemoteState": "CANCELED"
+  },
+  "ui": {
+    "checks": [
+      "Created independent workspace and realtime tasks through UI",
+      "Saved SELECT 42; real SQL validation and Flink execution plan passed",
+      "SELECT preview returned RowKind +I and answer 42; SUCCESS cleanupStatus COMPLETED",
+      "Debug logs showed real operation/preview/Flink Job IDs and cleanup state",
+      "Unsaved SELECT 43 survived module navigation, workspace switch, new browser session and backend restart",
+      "Default workspace displayed no acceptance tasks; returning restored workspace-specific tabs and draft",
+      "Browser v2 storage contained only schemaVersion, drafts, openTabs, activeId, view and selectedJobId",
+      "Seeded own MySQL datasource using local acceptance credentials without printing credentials",
+      "Datasource UI displayed Flink execution host/port; blank-password edit preserved passwordSet",
+      "Imported real MySQL table id INT NOT NULL PRIMARY KEY and payload STRING NOT NULL",
+      "Generated managed DDL and saved binding configuration",
+      "Dark and light themes, 950px viewport and narrow configuration Drawer rendered correctly",
+      "Published bounded two-row blackhole task as R1; editing draft to 99 retained release snapshot 42,43",
+      "Fresh-start UI confirmation explicitly explained no Savepoint restoration",
+      "Started R1 on real Flink; production job reached FINISHED",
+      "Terminal restart with no Savepoint required explicit fresh-start confirmation",
+      "Confirmed restart sent allowFreshStart=true; operation SUCCESS restartMode FRESH; replacement job reached FINISHED",
+      "UI followed replacement job selection and rendered real Job ID, version, metrics availability, checkpoints, Savepoint and history tabs",
+      "Operator metric tab used actual vertex values; missing metrics displayed unavailable",
+      "Structured Flink exceptions and shared node logs rendered with matching/truncation markers",
+      "Fixed server-descending jobs selection; latest attempt selection now independent of response ordering",
+      "Fixed terminal duration handling; cached metrics have sampledAt and connection warnings",
+      "All UI test jobs terminal and preview cleaned up; browser session closed before backend restart",
+      "2026-10-02 fresh bounded UI job FINISHED; direct Flink REST duration 187ms matched backend durationMs and stable 0-second UI across two distinct real sampledAt refreshes; cleanup COMPLETED"
+    ],
+    "finalDuration": {
+      "date": "2026-10-02",
+      "scope": "Fresh two-row bounded blackhole task created, saved, published and started through UI; terminal duration checked across real subsequent refreshes",
+      "taskName": "ui_duration_20261002",
+      "taskId": "c4238ff8-0d71-44a6-84fe-758192ad740c",
+      "sql": "CREATE TABLE duration_sink (v INT) WITH ('connector' = 'blackhole');\nINSERT INTO duration_sink VALUES (42), (43);",
+      "firstSample": {
+        "at": "2026-10-01T18:58:35.001Z",
+        "connectionMessage": null,
+        "displayedDuration": "运行时长\n0秒",
+        "durationMs": 187,
+        "flinkJobId": "a66de3fb0ef5fd844c7414679210e434",
+        "gatewayCleanupStatus": "COMPLETED",
+        "id": "fa5d925f-7959-473e-8a57-66d6e749bf66",
+        "operationId": "2fe7c794-0ea9-4984-8797-456747919d9e",
+        "operationStatus": "SUCCESS",
+        "sampledAt": "2026-10-01T18:58:34.937551800Z",
+        "startedAt": "2026-10-01T18:58:09.253Z",
+        "status": "FINISHED",
+        "stoppedAt": "2026-10-01T18:58:09.440Z",
+        "taskId": "c4238ff8-0d71-44a6-84fe-758192ad740c",
+        "taskName": "ui_duration_20261002"
+      },
+      "secondSample": {
+        "at": "2026-10-01T18:59:23.448Z",
+        "connectionMessage": null,
+        "displayedDuration": "运行时长\n0秒",
+        "durationMs": 187,
+        "flinkJobId": "a66de3fb0ef5fd844c7414679210e434",
+        "gatewayCleanupStatus": "COMPLETED",
+        "id": "fa5d925f-7959-473e-8a57-66d6e749bf66",
+        "sampledAt": "2026-10-01T18:59:23.402406800Z",
+        "startedAt": "2026-10-01T18:58:09.253Z",
+        "status": "FINISHED",
+        "stoppedAt": "2026-10-01T18:58:09.440Z"
+      },
+      "directFlinkRestEvidence": {
+        "checkedAt": "2026-10-01T18:59:36.5526988Z",
+        "flinkJobId": "a66de3fb0ef5fd844c7414679210e434",
+        "state": "FINISHED",
+        "startTime": 1790881089253,
+        "endTime": 1790881089440,
+        "duration": 187
+      },
+      "durationStable": true,
+      "uiSecondsMatchFloorOfDurationMs": true,
+      "screenshot": "ui-job-duration-fixed-20261002.png",
+      "browserSession": "realtime-ui",
+      "browserClosed": true,
+      "newFrontendChanges": false,
+      "frontendVerification": "Root reran typecheck, 86 tests and production build successfully before this UI check; no code change required repeated tests",
+      "activeOwnJobs": 0,
+      "activeOwnPreviews": 0
+    },
+    "screenshots": [
+      "ui-select-dark.png",
+      "ui-fields-import.png",
+      "ui-fields-light.png",
+      "ui-narrow-light.png",
+      "ui-narrow-drawer.png",
+      "ui-release-isolation.png",
+      "ui-operations-before-start.png",
+      "ui-job-finished-light.png",
+      "ui-fresh-restart-confirmation.png",
+      "ui-job-metrics.png",
+      "ui-job-finished-dark.png",
+      "ui-job-duration-fixed-20261002.png"
+    ]
+  },
+  "notes": [
+    "Historical failed and interrupted reports remain under .runtime/realtime; none were reclassified as passed.",
+    "Acceptance fixtures use unique tables and Kafka Topics. Containers, state volumes and fixture data are retained.",
+    "No credentials, SQL containing credentials, raw Surefire properties or node logs are included in this report."
+  ],
+  "resources": {
+    "status": "PASSED",
+    "activeFlinkJobs": 0,
+    "activePreviews": 0,
+    "activeCdcReservations": 0,
+    "backendHealth": "UP",
+    "frontendHttp": 200
+  }
+}

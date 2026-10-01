@@ -71,6 +71,7 @@ function BindingCard({ binding, task, sources, onChange, onInsertDDL, onManageDa
   const [schemaOpen, setSchemaOpen] = useState(false);
   const [ddlOpen, setDDLOpen] = useState(false);
   const [tables, setTables] = useState<{ name: string; type: string; comment: string }[]>([]);
+  const [topics, setTopics] = useState<string[]>([]);
   const [tableLoading, setTableLoading] = useState(false);
   const [columnLoading, setColumnLoading] = useState(false);
   const [metadataError, setMetadataError] = useState("");
@@ -90,9 +91,14 @@ function BindingCard({ binding, task, sources, onChange, onInsertDDL, onManageDa
     let alive = true;
     ++requestRevision.current;
     setColumnLoading(false);
-    setTables([]);
+    setTables([]); setTopics([]);
     setMetadataError("");
-    if (isKafka || !source || source.type === "KAFKA" || !acceptsSource(binding, source)) {
+    if (isKafka && source?.type === "KAFKA") {
+      setTableLoading(true);
+      void api.datasourceTopics(source.id).then(items => { if (alive) setTopics(items.map(item => item.name)); }).catch(reason => { if (alive) setMetadataError(errorText(reason)); }).finally(() => { if (alive) setTableLoading(false); });
+      return () => { alive = false; ++requestRevision.current; };
+    }
+    if (!source || source.type === "KAFKA" || !acceptsSource(binding, source)) {
       setTableLoading(false);
       return () => { alive = false; ++requestRevision.current; };
     }
@@ -159,7 +165,7 @@ function BindingCard({ binding, task, sources, onChange, onInsertDDL, onManageDa
         }} placeholder={`选择 ${isKafka ? "Kafka" : isDoris ? "Doris" : "MySQL"} 数据源`} options={choices.map(item => ({ value: item.id, label: item.type === "KAFKA" ? item.name : `${item.name} / ${item.database}` }))} showSearch optionFilterProp="label" notFoundContent={<Button type="link" size="small" onClick={onManageDatasources}>添加数据源</Button>} />
       </Form.Item>
       {isKafka ? <>
-        <Form.Item label="Topic" required><Input aria-label={`${binding.role} Topic`} value={binding.topic} onChange={event => patch({ topic: event.target.value })} placeholder="orders_events" /></Form.Item>
+        <Form.Item label={<span className="rt-form-label-action">Topic<Button type="link" size="small" loading={tableLoading} disabled={!source} onClick={() => setMetadataRevision(value => value + 1)}>刷新 Topics</Button></span>} required><AutoComplete aria-label={`${binding.role} Topic`} value={binding.topic} options={topics.map(value => ({value}))} onChange={topic => patch({topic})} placeholder="选择或输入 Topic" filterOption={(input,option) => String(option?.value||"").toLowerCase().includes(input.toLowerCase())} /></Form.Item>
         {isSource && <>
           <Form.Item label="Consumer Group" required><Input value={binding.consumerGroup} onChange={event => patch({ consumerGroup: event.target.value })} placeholder="flink_orders_dev" aria-label="Consumer Group" /></Form.Item>
           <Form.Item label="起始位点"><Select value={binding.startupMode} onChange={startupMode => patch({ startupMode })} options={[{ value: "group-offsets", label: "消费组位点（group-offsets）" }, { value: "earliest-offset", label: "最早位点（earliest-offset）" }, { value: "latest-offset", label: "最新位点（latest-offset）" }]} /></Form.Item>
@@ -173,8 +179,8 @@ function BindingCard({ binding, task, sources, onChange, onInsertDDL, onManageDa
         </Form.Item>
         {isCDC && <>
           <Form.Item label="启动模式"><Select value={binding.cdcStartupMode} onChange={cdcStartupMode => patch({ cdcStartupMode })} options={[{ value: "initial", label: "全量快照 + 增量（initial）" }, { value: "latest-offset", label: "仅最新增量（latest-offset）" }]} /></Form.Item>
-          <div className="rt-form-pair"><Form.Item label="Server ID" required><Input aria-label="CDC Server ID" value={binding.serverId} onChange={event => patch({ serverId: event.target.value })} placeholder="5400-5404" /></Form.Item><Form.Item label="服务器时区"><Input value={binding.timezone} onChange={event => patch({ timezone: event.target.value })} placeholder="Asia/Shanghai" aria-label="CDC 服务器时区" /></Form.Item></div>
-          <p className="rt-panel-help">MySQL 需开启 Binlog；Server ID 应与其他 CDC 任务区分。</p>
+          <div className="rt-form-pair"><Form.Item label="Server ID"><Input aria-label="CDC Server ID" value={binding.serverId} onChange={event => patch({ serverId: event.target.value })} placeholder="留空自动分配；如 5400-5404" /></Form.Item><Form.Item label="服务器时区"><Input value={binding.timezone} onChange={event => patch({ timezone: event.target.value })} placeholder="Asia/Shanghai" aria-label="CDC 服务器时区" /></Form.Item></div>
+          <p className="rt-panel-help">MySQL 需开启 Binlog；Server ID 支持 1–2147483647 的整数或递增范围，留空由服务端自动分配。手动配置应与其他 CDC 任务区分。</p>
         </>}
         {binding.connector === "MYSQL_JDBC" && <Form.Item label="写入方式"><Select value={binding.writeMode} onChange={writeMode => patch({ writeMode })} options={[{ value: "append", label: "追加写入" }, { value: "upsert", label: "按主键更新（Upsert）" }]} /></Form.Item>}
         {isDoris && <>
@@ -208,7 +214,7 @@ function BindingCard({ binding, task, sources, onChange, onInsertDDL, onManageDa
       ]} />
     </Modal>
     <Modal title={`${binding.tableName || binding.role} · DDL 预览`} open={ddlOpen} width={850} onCancel={() => setDDLOpen(false)} footer={<Space><Button onClick={() => setDDLOpen(false)}>关闭</Button><Button type="primary" disabled={issues.length > 0} onClick={() => { onInsertDDL(binding); setDDLOpen(false); }}>插入当前 SQL</Button></Space>}>
-      <p className="rt-panel-help">连接信息引用数据源，密码不会写入 SQL。预览仅生成配置结构，部署前仍需检查连接器版本及 Flink SQL。</p>
+      <p className="rt-panel-help">连接信息引用数据源，执行时由服务器注入凭据。修改配置后重新插入 DDL；手改受管块会在 SQL 校验时提示冲突。</p>
       <pre className="rt-code-preview">{ddl}</pre>
     </Modal>
   </div>;
@@ -226,7 +232,7 @@ export function RuntimeEditor({ task, onChange }: Pick<BindingEditorProps, "task
       <Form.Item label="重启等待（秒）" required><InputNumber aria-label="重启等待秒数" min={1} max={86400} precision={0} value={task.runtime.restartDelaySeconds} onChange={value => { if (value !== null) patch({ restartDelaySeconds: value }); }} /></Form.Item>
     </Form>
     <div className="rt-runtime-note"><Waves size={15} /><div><strong>独立实时运维</strong><p>发布后前往实时运维启动作业、查看 Checkpoint 或创建 Savepoint。</p></div></div>
-    <Alert type="info" showIcon title="前端演示" description="当前运行配置保存在此浏览器中；作业状态、Checkpoint 和 Savepoint 为演示数据，尚未连接 Flink。" />
+    <Alert type="info" showIcon title="真实 Flink 运行配置" description="发布后配置进入服务器版本快照；Checkpoint、重启策略和并行度在 Flink 作业中执行。" />
   </div>;
 }
 
@@ -240,6 +246,7 @@ export function ReleaseViewer({ task, releases }: Pick<BindingEditorProps, "task
     <div className="rt-panel-section-heading"><div><span className="rt-eyebrow">发布快照</span><h3>版本记录</h3></div><History size={17} /></div>
     <p className="rt-panel-help">每个版本保存独立的 SQL、Source / Sink 和运行配置。草稿修改不会影响已发布版本。</p>
     {!selected ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未发布版本，完成配置后点击发布。" /> : <>
+      {selected.importWarning && <Alert type="warning" showIcon title="旧版本需要重新发布" description={selected.importWarning} />}
       <Select className="rt-full-width" aria-label="选择发布版本" value={selected.id} onChange={setSelectedId} options={candidates.map(release => ({ value: release.id, label: `R${release.releaseNo} · ${stamp(release.createdAt)}` }))} />
       <Descriptions className="rt-release-description" column={1} size="small" items={[
         { key: "version", label: "版本", children: <Tag color="blue">R{selected.releaseNo}</Tag> },

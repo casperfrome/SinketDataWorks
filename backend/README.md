@@ -17,7 +17,7 @@ mvn.cmd spring-boot:run
 
 日志显示在终端，按 `Ctrl+C` 停止。保持从 `backend` 目录启动，使本地配置和 `backend/storage` 上传路径一致。前端单独启动，见主 README。
 
-Flyway 维护 V1–V8 版本迁移；旧七表数据库需备份并显式建立 V1 基线，见[迁移说明](../docs/mysql-query.md)。`SeedData` 仅补充一个默认工作空间，不生成开发文件或连接。V8 将旧内置沙箱和同步验收空间退出用户列表，保留其数据并暂停自动计划；用户自建空间保持可见。默认数据库名为 `fake_dataworks_260927`，可通过连接 URL 指向自己的数据库；辅助初始化及备份脚本使用默认数据库名。
+Flyway 维护 V1–V12 版本迁移；旧七表数据库需备份并显式建立 V1 基线，见[迁移说明](../docs/mysql-query.md)。`SeedData` 仅补充一个默认工作空间，不生成开发文件或连接。V8 将旧内置沙箱和同步验收空间退出用户列表，保留其数据并暂停自动计划；用户自建空间保持可见。默认数据库名为 `fake_dataworks_260927`，可通过连接 URL 指向自己的数据库；辅助初始化及备份脚本使用默认数据库名。
 
 ## 分层与接口
 
@@ -69,3 +69,29 @@ Controller 负责 HTTP/DTO 转换；Service 负责校验、事务和执行提供
 ## Doris SQL 与分区同步
 
 `DORIS` provider 复用 SQL 执行器、不可变发布、调度和工作流。Doris 方言通过明确识别的语法与当前业务库边界校验；支持查询、SHOW/DESC、DML 及 OLAP 表/分区 DDL。跨 schema、catalog 前缀、外部表函数及未识别语法在执行前拒绝，SHOW/DESC 分类为查询，DDL 保留逐语句提交状态。详细范围见 [Doris SQL](../docs/doris-query.md)。同步元数据新增分区类型、表达式、列和物理分区范围；配置仍保存在 JSON，未新增 Flyway 迁移。固定分区覆盖在目标锁后解析并冻结提交范围；来源字段路由做覆盖须选择已有物理分区。初始化订单样例为零数据、零分区的 AUTO 表，`partition.retention_count=400` 管理历史分区数量。参数/字段分区赋值和覆盖规则见 [分区同步](../docs/offline-sync.md#分区读写与订单示例)。
+
+## 实时开发 API
+
+V11 新增独立实时元数据表，V12 持久化 MySQL CDC server-id 占用范围并按执行端点加锁，保护跨任务和预览并发。实时对象不写入离线运行、任务计划或 Cron 表。所有接口使用 `/api/v1` 前缀，并在请求体或查询参数中携带 `workspaceId`。
+
+| 路径 | 行为 |
+| --- | --- |
+| `/realtime/state` | GET 空间任务、目录、发布、作业和控制操作 |
+| `/realtime/tasks`、`/tasks/{id}` | POST 创建，PUT 保存（`expectedRevision`），DELETE 删除 |
+| `/realtime/tasks/{id}/copy`、`/draft` | 复制任务；PUT/DELETE 保存、丢弃草稿 |
+| `/realtime/folders`、`/folders/{id}` | 创建、修改、删除目录 |
+| `/realtime/tasks/{id}/releases` | POST 校验并保存不可变发布，含任务快照及预期版本 |
+| `/realtime/validate`、`/plan`、`/preview` | POST 草稿 SQL 校验、计划及 SELECT 预览 |
+| `/realtime/previews/{id}`、`/{id}/cancel` | GET 分页结果（`token`），POST 取消预览 |
+| `/realtime/jobs`、`/jobs/{id}` | POST 从 `releaseId` 启动，可提供 `savepointId`；GET 真实详情 |
+| `/realtime/jobs/{id}/{action}` | POST `cancel`、`stop`、`savepoint`、`restart`、`upgrade`；升级传 `targetReleaseId` |
+| `/realtime/operations/{id}`、`/{id}/rollback` | GET 操作进度，POST 从失败升级保留的保存点恢复旧发布 |
+| `/realtime/import` | POST 幂等导入旧浏览器内容，保留真实对象并排除模拟作业 |
+| `/datasources/{id}/topics` | GET Kafka Topic 元数据 |
+| `/datasources/{id}/tables/{table}/cdc-metadata` | GET MySQL CDC 条件及表结构检查 |
+
+发布、校验、计划、预览和作业控制返回 `202 {operationId, jobId?, previewId?}`；轮询操作获取 `status`、`phase`、`result` 或脱敏错误。状态为 `RUNNING / SUCCESS / FAILED / RECOVERING`，结果未知时继续对账。写操作可传 `requestId` 保证幂等，数据库活动锁防止同一任务重复生产运行。
+
+生产作业使用独立部署身份、固定 Job ID 和 detached 提交；恢复参数使用 `execution.state-recovery.path`、`NO_CLAIM`、严格状态匹配。预览默认 100 行/30 秒，单独管理查询作业与清理。详细 SQL、凭据和升级边界见[实时开发说明](../docs/realtime-development.md)。
+
+普通单元及集成测试使用 `studio.realtime.polling-enabled=false`，避免后台协调其他空间的真实记录。产品验收使用 `D:\PythonVenv\Scripts\python.exe scripts/test-realtime.py --backend-url http://127.0.0.1:8080`，报告为 `.runtime/realtime/acceptance-report.json`。

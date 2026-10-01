@@ -1,4 +1,5 @@
 import type { ScheduleParameter, ParameterPreview, TaskRelease, TaskSchedule, TaskScheduleInput, TaskPreview, TaskTrigger } from "./types";
+import type { KafkaDatasourceInput, RealtimeDatasource, RealtimeState, RealtimeTask, RealtimeFolder, RealtimeRelease, RealtimeJob, RealtimeOperation, RealtimeSubmission, RealtimePreview } from "./realtime/types";
 import type { BackfillInput, BackfillPreview, BackfillResult, SchedulingInstance, SchedulingKind, SchedulingPage, SchedulingTask } from "./types";
 import type {
   SyncMetadata,
@@ -56,6 +57,29 @@ const json = (method: string, body?: unknown): RequestInit => ({
   method,
   body: body === undefined ? undefined : JSON.stringify(body),
 });
+async function realtimeResult<T>(workspaceId: string, submission: RealtimeSubmission): Promise<T> {
+  for (let attempt = 0; attempt < 300; attempt++) {
+    const operation = await request<RealtimeOperation>(`/realtime/operations/${submission.operationId}?${new URLSearchParams({workspaceId})}`);
+    if (operation.status === "SUCCESS") return operation.result as T;
+    if (operation.status === "FAILED") throw new ApiError(operation.message || operation.errorMessage || "Flink 操作失败",400,operation.errorCode || "REALTIME_OPERATION_FAILED");
+    await new Promise(resolve => setTimeout(resolve,1000));
+  }
+  throw new ApiError(`实时操作仍在处理中，请到实时运维查看：${submission.operationId}`,408,"OPERATION_PENDING");
+}
+const realtimeRequestIds = new Map<string,string>();
+async function realtimeLongOperation<T>(path: string, input: {workspaceId:string;[key:string]:unknown}): Promise<T> {
+  const key = path + JSON.stringify(input);
+  const requestId = realtimeRequestIds.get(key) || globalThis.crypto?.randomUUID?.() || `request-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  realtimeRequestIds.set(key,requestId);
+  try {
+    const submission = await request<RealtimeSubmission>(path,json("POST",{...input,requestId}));
+    const result = await realtimeResult<T>(input.workspaceId,submission);
+    realtimeRequestIds.delete(key); return result;
+  } catch (error) {
+    if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408) realtimeRequestIds.delete(key);
+    throw error;
+  }
+}
 export const api = {
   syncMetadata:(id:string,table:string)=>request<SyncMetadata>(`/datasources/${id}/tables/${encodeURIComponent(table)}/sync-metadata`),
   validateSync:(object:StudioObject)=>request<{valid:boolean;message:string}>("/sync/validate",json("POST",object)),
@@ -125,9 +149,31 @@ export const api = {
   backfillProgress: (batchKey: string) => request<BackfillResult>(`/scheduling/backfills/${encodeURIComponent(batchKey)}`),
   runDetail: (id: string) => request<Run>(`/runs/${id}`),
   runResults: (id: string, page = 1, statementIndex?: number) => request<QueryResult>(`/runs/${id}/results?page=${page}&pageSize=100${statementIndex === undefined ? "" : `&statementIndex=${statementIndex}`}`),
-  datasources: (wid: string) => request<DataSource[]>(`/datasources?workspaceId=${encodeURIComponent(wid)}`),
-  saveDatasource: (input: DataSourceInput, id?: string) => request<DataSource>(`/datasources${id ? "/" + id : ""}`, json(id ? "PUT" : "POST", input)),
-  testDatasource: (input?: Partial<DataSourceInput>, id?: string) => request<{success: boolean; message: string; version: string; elapsedMs: number}>(`/datasources${id ? "/" + id : ""}/test`, json("POST", input || {})),
+  datasources: (wid: string) => request<RealtimeDatasource[]>(`/datasources?workspaceId=${encodeURIComponent(wid)}`),
+  saveDatasource: (input: DataSourceInput | KafkaDatasourceInput, id?: string) => request<RealtimeDatasource>(`/datasources${id ? "/" + id : ""}`, json(id ? "PUT" : "POST", input)),
+  testDatasource: (input?: Partial<DataSourceInput> | Partial<KafkaDatasourceInput>, id?: string) => request<{success: boolean; message: string; version: string; elapsedMs: number}>(`/datasources${id ? "/" + id : ""}/test`, json("POST", input || {})),
+  datasourceTopics: (id: string) => request<{name: string; partitions?: number}[]>(`/datasources/${id}/topics`),
+  removeDatasource: (id: string) => request<void>(`/datasources/${id}`, json("DELETE")),
+  realtimeState: (workspaceId: string) => request<RealtimeState>(`/realtime/state?${new URLSearchParams({workspaceId})}`),
+  realtimeSave: (workspaceId: string, task: RealtimeTask, create = false) => request<RealtimeTask>(create ? "/realtime/tasks" : `/realtime/tasks/${task.id}`, json(create ? "POST" : "PUT", {workspaceId,task,expectedRevision:task.revision})),
+  realtimeRemove: (workspaceId: string, id: string) => request<void>(`/realtime/tasks/${id}?${new URLSearchParams({workspaceId})}`, json("DELETE")),
+  realtimeDraft: (workspaceId: string, task: RealtimeTask) => request<void>(`/realtime/tasks/${task.id}/draft`,json("PUT",{workspaceId,task,expectedRevision:task.revision})),
+  realtimeDiscardDraft: (workspaceId: string, id: string) => request<void>(`/realtime/tasks/${id}/draft?${new URLSearchParams({workspaceId})}`,json("DELETE")),
+  realtimeCopy: (workspaceId: string, id: string, name?: string) => request<RealtimeTask>(`/realtime/tasks/${id}/copy`, json("POST",{workspaceId,name})),
+  realtimeFolder: (workspaceId: string, name: string, id?: string) => request<RealtimeFolder>(`/realtime/folders${id ? "/" + id : ""}`, json(id ? "PUT" : "POST",{workspaceId,name})),
+  realtimeRemoveFolder: (workspaceId: string, id: string) => request<void>(`/realtime/folders/${id}?${new URLSearchParams({workspaceId})}`,json("DELETE")),
+  realtimePublish: (workspaceId: string, task: RealtimeTask, note: string) => realtimeLongOperation<RealtimeRelease>(`/realtime/tasks/${task.id}/releases`,{workspaceId,task,expectedRevision:task.revision,note}),
+  realtimeValidate: (workspaceId: string, task: RealtimeTask) => realtimeLongOperation<{valid:boolean;errors:string[];plan?:string}>("/realtime/validate",{workspaceId,task}),
+  realtimePlan: (workspaceId: string, task: RealtimeTask) => realtimeLongOperation<{valid:boolean;errors:string[];plan?:string}>("/realtime/plan",{workspaceId,task}),
+  realtimePreview: (workspaceId: string, task: RealtimeTask, query: string) => request<RealtimeSubmission>("/realtime/preview",json("POST",{workspaceId,task,query})),
+  realtimePreviewResult: (workspaceId: string, id: string, token: number | string = 0) => request<RealtimePreview>(`/realtime/previews/${id}?${new URLSearchParams({workspaceId,token:String(token)})}`),
+  realtimeCancelPreview: (workspaceId: string, id: string) => request<void>(`/realtime/previews/${id}/cancel`,json("POST",{workspaceId})),
+  realtimeStart: (workspaceId: string, releaseId: string, requestId: string, savepointId?: string) => request<RealtimeSubmission>("/realtime/jobs",json("POST",{workspaceId,releaseId,requestId,savepointId})),
+  realtimeJob: (workspaceId: string, id: string) => request<RealtimeJob>(`/realtime/jobs/${id}?${new URLSearchParams({workspaceId})}`),
+  realtimeControl: (workspaceId: string, id: string, action: "cancel" | "stop" | "savepoint" | "restart" | "upgrade", requestId: string, targetReleaseId?: string, allowFreshStart?: boolean) => request<RealtimeSubmission>(`/realtime/jobs/${id}/${action}`,json("POST",{workspaceId,requestId,targetReleaseId,allowFreshStart})),
+  realtimeOperation: (workspaceId: string, id: string) => request<RealtimeOperation>(`/realtime/operations/${id}?${new URLSearchParams({workspaceId})}`),
+  realtimeRollback: (workspaceId: string, id: string, requestId: string) => request<RealtimeSubmission>(`/realtime/operations/${id}/rollback`,json("POST",{workspaceId,requestId})),
+  realtimeImport: (workspaceId: string, importId: string, state: RealtimeState) => request<RealtimeState>("/realtime/import",json("POST",{workspaceId,importId,state})),
   sourceTables: (id: string) => request<{name: string; type: string; comment: string}[]>(`/datasources/${id}/tables`),
   sourceColumns: (id: string, table: string) => request<{name: string; type: string; nullable: string; columnKey: string; comment: string}[]>(`/datasources/${id}/tables/${encodeURIComponent(table)}/columns`),
   stop: (id: string) => request<Run>(`/runs/${id}/stop`, json("POST")),

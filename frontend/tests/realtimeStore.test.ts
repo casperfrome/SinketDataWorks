@@ -1,169 +1,100 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBinding, createJob, createRelease, createTask } from "../src/realtime/model.ts";
-import { emptyState, getKafkaPassword, getRealtimeState, kafkaReferences, setKafkaPassword, storageKey, updateRealtimeState } from "../src/realtime/store.ts";
-import type { KafkaDatasource } from "../src/realtime/types.ts";
+import { createTask, createRelease, createBinding } from "../src/realtime/model.ts";
+import { acknowledgeTask, emptyState, getRealtimeState, legacyImportId, legacyStorageKey, localState, mergeRemoteState, parseLegacyState, refreshRealtimeState, settleSavedDraft, storageKey, updateRealtimeState } from "../src/realtime/store.ts";
 
-const stored = new Map<string, string>();
-let failWrites = false;
-Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key: string) => stored.get(key) || null, setItem: (key: string, value: string) => { if (failWrites) throw new Error("QuotaExceededError"); stored.set(key, value); } } });
+const stored = new Map<string,string>();
+let failWrites=false;
+Object.defineProperty(globalThis,"localStorage",{configurable:true,value:{getItem:(key:string)=>stored.get(key)||null,setItem:(key:string,value:string)=>{if(failWrites)throw new Error("QuotaExceededError");stored.set(key,value);}}});
+const originalFetch=globalThis.fetch;
+test.afterEach(()=>{globalThis.fetch=originalFetch;failWrites=false;});
+const response=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{"Content-Type":"application/json"}});
 
-test("workspace storage and in-memory drafts remain isolated", () => {
-  const first = createTask("store-a", "workspace A");
-  const second = createTask("store-b", "workspace B");
-  assert.equal(updateRealtimeState("store-a", state => ({ ...state, tasks: [first], drafts: { [first.id]: { ...first, sql: "unsaved A" } } })), true);
-  assert.equal(updateRealtimeState("store-b", state => ({ ...state, tasks: [second] })), true);
-  assert.equal(getRealtimeState("store-a").drafts[first.id].sql, "unsaved A");
-  assert.equal(getRealtimeState("store-b").tasks[0].name, "workspace B");
-  assert.equal(getRealtimeState("store-b").drafts[first.id], undefined);
-  assert.notEqual(storageKey("a/b"), storageKey("a%2Fb"));
+test("browser persistence contains drafts and UI, never authoritative tasks, releases, jobs or Kafka credentials",()=>{
+  const task={...createTask("boundary","task"),revision:1};
+  const state={...emptyState(),tasks:[task],releases:[createRelease(task,[])],drafts:{[task.id]:task},openTabs:[task.id],activeId:task.id};
+  const saved=localState(state);
+  assert.equal(saved.schemaVersion,2);assert.equal(saved.drafts[task.id].name,"task");
+  for(const key of ["tasks","releases","jobs","kafkaSources"])assert.equal(Object.hasOwn(saved,key),false);
 });
-
-test("failed browser writes keep latest edits in memory and a later retry can save", () => {
-  const task = createTask("store-quota", "订单草稿");
-  updateRealtimeState("store-quota", state => ({ ...state, tasks: [task] }));
-  const before = stored.get(storageKey("store-quota"));
-  failWrites = true;
-  try {
-    assert.equal(updateRealtimeState("store-quota", state => ({ ...state, drafts: { [task.id]: { ...task, sql: "SELECT latest_edit;" } } })), false);
-    assert.equal(getRealtimeState("store-quota").drafts[task.id].sql, "SELECT latest_edit;");
-    assert.equal(stored.get(storageKey("store-quota")), before);
-  } finally { failWrites = false; }
-  assert.equal(updateRealtimeState("store-quota", state => state), true);
-  assert.ok(stored.get(storageKey("store-quota"))!.includes("latest_edit"));
+test("an async save only acknowledges its submitted draft and preserves newer editor changes with updated revision",()=>{
+  const submitted={...createTask("ack","task"),revision:3,sql:"SELECT 1"},saved={...submitted,revision:4,updatedAt:"server-time"};
+  assert.equal(settleSavedDraft(structuredClone(submitted),submitted,saved),undefined);
+  const newer={...submitted,sql:"SELECT 2"};
+  assert.deepEqual(settleSavedDraft(newer,submitted,saved),{...newer,revision:4,updatedAt:"server-time"});
+  updateRealtimeState("ack",state=>({...state,tasks:[submitted],drafts:{[submitted.id]:newer}}));
+  acknowledgeTask("ack",submitted,saved);
+  assert.equal(getRealtimeState("ack").drafts[submitted.id].sql,"SELECT 2");
+  assert.equal(getRealtimeState("ack").tasks[0].revision,4);
 });
-
-test("corrupt JSON is retained rather than silently replaced by an empty configuration", () => {
-  const key = storageKey("store-corrupt");
-  stored.set(key, "{corrupt-original");
-  assert.deepEqual(getRealtimeState("store-corrupt"), emptyState());
-  const task = createTask("store-corrupt", "safe memory draft");
-  assert.equal(updateRealtimeState("store-corrupt", state => ({ ...state, tasks: [task] })), false);
-  assert.equal(getRealtimeState("store-corrupt").tasks[0].name, "safe memory draft");
-  assert.equal(stored.get(key), "{corrupt-original");
+test("workspace drafts remain isolated and failed local writes retain memory edits",()=>{
+  const a=createTask("isolate-a","A"),b=createTask("isolate-b","B");
+  updateRealtimeState("isolate-a",state=>({...state,drafts:{[a.id]:a}}));
+  updateRealtimeState("isolate-b",state=>({...state,drafts:{[b.id]:b}}));
+  failWrites=true;
+  assert.equal(updateRealtimeState("isolate-a",state=>({...state,drafts:{[a.id]:{...a,sql:"SELECT 8"}}})),false);
+  assert.equal(getRealtimeState("isolate-a").drafts[a.id].sql,"SELECT 8");
+  assert.equal(getRealtimeState("isolate-b").drafts[b.id].name,"B");
 });
-
-test("malformed nested records and cross-workspace records are rejected before rendering", () => {
-  const malformed = { ...emptyState(), tasks: [{ id: "bad-record" }] };
-  const wrongWorkspace = { ...emptyState(), tasks: [createTask("some-other-workspace", "foreign")] };
-  stored.set(storageKey("store-malformed"), JSON.stringify(malformed));
-  stored.set(storageKey("store-wrong-workspace"), JSON.stringify(wrongWorkspace));
-  assert.deepEqual(getRealtimeState("store-malformed"), emptyState());
-  assert.deepEqual(getRealtimeState("store-wrong-workspace"), emptyState());
+test("legacy imports use a stable content identifier and reject malformed or cross-workspace records",()=>{
+  const task=createTask("legacy","task"),state={...emptyState(),tasks:[task]};
+  const raw=JSON.stringify(state);
+  assert.equal(legacyImportId("legacy",raw),legacyImportId("legacy",raw));
+  assert.notEqual(legacyImportId("legacy",raw),legacyImportId("legacy",raw+" "));
+  assert.equal(parseLegacyState(raw,"legacy").tasks[0].id,task.id);
+  assert.throws(()=>parseLegacyState(raw,"other"),/跨工作空间/);
+  assert.throws(()=>parseLegacyState('{"schemaVersion":3}',"legacy"),/结构或版本/);
 });
-
-test("valid stored tasks are restored including unsaved drafts and open-tab state", () => {
-  const task = createTask("store-restore", "restored task");
-  const state = { ...emptyState(), tasks: [task], drafts: { [task.id]: { ...task, sql: "uncommitted SQL" } }, openTabs: [task.id], activeId: task.id };
-  stored.set(storageKey("store-restore"), JSON.stringify(state));
-  assert.deepEqual(getRealtimeState("store-restore"), state);
+test("legacy migration keeps its v1 backup, imports once, restores drafts and never displays mock runs as real jobs",async()=>{
+  const wid="migrate",task=createTask(wid,"legacy task"),draft={...task,sql:"SELECT 42"};
+  const legacy={...emptyState(),tasks:[task],drafts:{[task.id]:draft},openTabs:[task.id],activeId:task.id,jobs:[{id:"mock-job",taskId:task.id,status:"RUNNING"}]};
+  const raw=JSON.stringify(legacy);stored.set(legacyStorageKey(wid),raw);
+  let imports=0;
+  globalThis.fetch=async(url,options)=>{if(String(url).endsWith("/import")){imports++;assert.equal(JSON.parse(String(options?.body)).importId,legacyImportId(wid,raw));return response({});}return response({...emptyState(),tasks:[{...task,revision:1}],drafts:{}});};
+  await refreshRealtimeState(wid);await refreshRealtimeState(wid);
+  assert.equal(imports,1);assert.equal(stored.get(legacyStorageKey(wid)),raw);
+  assert.equal(getRealtimeState(wid).jobs.length,0);assert.equal(getRealtimeState(wid).drafts[task.id].sql,"SELECT 42");
+  assert.equal(getRealtimeState(wid).drafts[task.id].revision,1);
+  assert.equal(Object.hasOwn(JSON.parse(stored.get(storageKey(wid))!),"jobs"),false);
 });
-
-test("Kafka credentials remain session-only and accidental password properties are discarded", () => {
-  const source: KafkaDatasource = { id: "kafka-session", workspaceId: "store-password", type: "KAFKA", name: "Kafka", bootstrapServers: "broker:9092", securityProtocol: "SASL_SSL", saslMechanism: "PLAIN", username: "reader" };
-  setKafkaPassword(source.id, "never-persist-this-secret");
-  assert.equal(getKafkaPassword(source.id), "never-persist-this-secret");
-  updateRealtimeState("store-password", state => ({ ...state, kafkaSources: [{ ...source, password: "also-do-not-persist" } as KafkaDatasource] }));
-  const raw = stored.get(storageKey("store-password"))!;
-  assert.doesNotMatch(raw, /never-persist|also-do-not-persist|"password"/);
-  assert.equal("password" in getRealtimeState("store-password").kafkaSources[0], false);
-  setKafkaPassword(source.id, "");
-  assert.equal(getKafkaPassword(source.id), "");
+test("failed migration records no receipt, preserves the backup and retries with the same import ID",async()=>{
+  const wid="retry-import",task=createTask(wid,"task"),raw=JSON.stringify({...emptyState(),tasks:[task]});stored.set(legacyStorageKey(wid),raw);
+  const ids:string[]=[];let failed=true;
+  globalThis.fetch=async(url,options)=>{if(String(url).endsWith("/import")){ids.push(JSON.parse(String(options?.body)).importId);return failed?response({code:"UNAVAILABLE",message:"server down"},503):response({});}return response({...emptyState(),tasks:[{...task,revision:1}]});};
+  await assert.rejects(refreshRealtimeState(wid),/server down/);assert.equal(stored.has(storageKey(wid)+":import"),false);
+  failed=false;await refreshRealtimeState(wid);assert.equal(ids[0],ids[1]);assert.equal(stored.get(legacyStorageKey(wid)),raw);
 });
-
-test("references include saved tasks, unsaved bindings and immutable release snapshots", () => {
-  const task = createTask("store-references", "saved task");
-  task.bindings = [{ ...createBinding("SOURCE"), datasourceId: "kafka-referenced" }];
-  const release = createRelease(task, []);
-  task.bindings = [];
-  const draft = { ...task, name: "draft task", bindings: [{ ...createBinding("SOURCE"), datasourceId: "kafka-referenced" }] };
-  updateRealtimeState("store-references", state => ({ ...state, tasks: [task], drafts: { [task.id]: draft }, releases: [release] }));
-  assert.deepEqual(kafkaReferences("store-references", "kafka-referenced"), ["draft task", "saved task · 发布版本 v1"]);
-  assert.deepEqual(kafkaReferences("store-references", "unreferenced"), []);
+test("migration keeps remapped Kafka references in imported drafts and concurrent local edits",async()=>{
+  const wid="import-remap",binding={...createBinding("SOURCE","KAFKA"),datasourceId:"old-kafka"},task={...createTask(wid,"task"),bindings:[binding]},draft={...task,sql:"-- 数据源引用：old-kafka\nSELECT 42"};
+  stored.set(legacyStorageKey(wid),JSON.stringify({...emptyState(),tasks:[task],drafts:{[task.id]:draft}}));
+  const remappedTask={...task,revision:1,bindings:[{...binding,datasourceId:"server-kafka"}]};
+  const remappedDraft={...draft,revision:1,bindings:remappedTask.bindings,sql:"-- 数据源引用：server-kafka\nSELECT 42"};
+  globalThis.fetch=async(url)=>{if(String(url).endsWith("/import")){updateRealtimeState(wid,state=>({...state,drafts:{[task.id]:{...draft,sql:"-- 数据源引用：old-kafka\nSELECT 43"}}}));return response({idMap:{"old-kafka":"server-kafka"},drafts:{[task.id]:remappedDraft}});}return response({...emptyState(),tasks:[remappedTask],drafts:{[task.id]:remappedDraft}});};
+  await refreshRealtimeState(wid);
+  assert.equal(getRealtimeState(wid).drafts[task.id].bindings[0].datasourceId,"server-kafka");
+  assert.equal(getRealtimeState(wid).drafts[task.id].sql,"-- 数据源引用：server-kafka\nSELECT 43");
 });
-
-test("failed atomic save preserves its dirty draft and retry acknowledges it once", () => {
-  const workspace = "store-atomic-save";
-  const task = createTask(workspace, "save task");
-  const draft = { ...task, sql: "SELECT latest_draft;" };
-  updateRealtimeState(workspace, state => ({ ...state, tasks: [task], drafts: { [task.id]: draft } }));
-  const save = () => updateRealtimeState(workspace, state => {
-    // Deliberately mutate the isolated commit input, exercising protection beyond pure updaters.
-    state.tasks = state.tasks.map(item => item.id === task.id ? state.drafts[task.id] : item);
-    delete state.drafts[task.id];
-    return state;
-  }, { requirePersist: true });
-  failWrites = true;
-  try {
-    assert.equal(save(), false);
-    assert.equal(getRealtimeState(workspace).drafts[task.id].sql, draft.sql);
-    assert.equal(getRealtimeState(workspace).tasks[0].sql, task.sql);
-  } finally { failWrites = false; }
-  assert.equal(save(), true);
-  assert.equal(getRealtimeState(workspace).drafts[task.id], undefined);
-  assert.equal(getRealtimeState(workspace).tasks.length, 1);
-  assert.equal(getRealtimeState(workspace).tasks[0].sql, draft.sql);
+test("server refresh merges local edits made while the request is pending and restores server drafts",async()=>{
+  const wid="refresh-race",task={...createTask(wid,"task"),revision:1},other={...createTask(wid,"other"),revision:1};
+  let resolveFetch!:(value:Response)=>void;
+  globalThis.fetch=()=>new Promise(resolve=>{resolveFetch=resolve;});
+  const pending=refreshRealtimeState(wid);
+  updateRealtimeState(wid,state=>({...state,drafts:{[task.id]:{...task,sql:"SELECT local"}}}));
+  resolveFetch(response({...emptyState(),tasks:[task,other],drafts:{[task.id]:{...task,sql:"SELECT remote"},[other.id]:{...other,sql:"SELECT shared"}}}));
+  await pending;
+  assert.equal(getRealtimeState(wid).drafts[task.id].sql,"SELECT local");assert.equal(getRealtimeState(wid).drafts[other.id].sql,"SELECT shared");
 });
-
-test("failed atomic publication does not clear a draft or allocate a duplicate version on retry", () => {
-  const workspace = "store-atomic-release";
-  const task = createTask(workspace, "publish task");
-  const draft = { ...task, sql: "INSERT INTO sink SELECT * FROM source;" };
-  updateRealtimeState(workspace, state => ({ ...state, tasks: [task], drafts: { [task.id]: draft } }));
-  const publish = () => updateRealtimeState(workspace, state => {
-    const snapshot = state.drafts[task.id];
-    const release = createRelease(snapshot, state.releases);
-    const { [task.id]: _acknowledged, ...drafts } = state.drafts;
-    return { ...state, drafts, releases: [...state.releases, release], tasks: state.tasks.map(item => item.id === task.id ? snapshot : item) };
-  }, { requirePersist: true });
-  failWrites = true;
-  try {
-    assert.equal(publish(), false);
-    assert.equal(publish(), false);
-    assert.equal(getRealtimeState(workspace).releases.length, 0);
-    assert.equal(getRealtimeState(workspace).drafts[task.id].sql, draft.sql);
-  } finally { failWrites = false; }
-  assert.equal(publish(), true);
-  const saved = getRealtimeState(workspace);
-  assert.equal(saved.releases.length, 1);
-  assert.equal(saved.releases[0].releaseNo, 1);
-  assert.equal(saved.releases[0].snapshot.sql, draft.sql);
-  assert.equal(saved.drafts[task.id], undefined);
+test("damaged v2 storage is retained even when server state loads successfully",async()=>{
+  const wid="corrupt-v2",raw="{damaged";stored.set(storageKey(wid),raw);
+  globalThis.fetch=async()=>response({...emptyState(),tasks:[{...createTask(wid,"server task"),revision:1}]});
+  await refreshRealtimeState(wid);
+  assert.equal(getRealtimeState(wid).tasks.length,1);assert.equal(stored.get(storageKey(wid)),raw);
 });
-
-test("failed atomic start creates no job and retry starts precisely one recorded job", () => {
-  const workspace = "store-atomic-start";
-  const task = createTask(workspace, "start task");
-  const release = createRelease(task, []);
-  const draft = { ...task, sql: "-- independent unsaved edit" };
-  updateRealtimeState(workspace, state => ({ ...state, tasks: [task], drafts: { [task.id]: draft }, releases: [release] }));
-  const start = () => updateRealtimeState(workspace, state => {
-    const job = createJob(release);
-    return { ...state, jobs: [...state.jobs, job], selectedJobId: job.id };
-  }, { requirePersist: true });
-  failWrites = true;
-  try {
-    assert.equal(start(), false);
-    assert.equal(start(), false);
-    assert.equal(getRealtimeState(workspace).jobs.length, 0);
-    assert.equal(getRealtimeState(workspace).selectedJobId, "");
-    assert.equal(getRealtimeState(workspace).drafts[task.id].sql, draft.sql);
-  } finally { failWrites = false; }
-  assert.equal(start(), true);
-  assert.equal(getRealtimeState(workspace).jobs.length, 1);
-  assert.equal(getRealtimeState(workspace).jobs[0].releaseId, release.id);
-  assert.equal(getRealtimeState(workspace).drafts[task.id].sql, draft.sql);
-});
-
-test("atomic commit cannot overwrite damaged storage or discard its existing memory draft", () => {
-  const workspace = "store-corrupt-atomic";
-  const key = storageKey(workspace);
-  stored.set(key, "{damaged-state");
-  const task = createTask(workspace, "retained draft");
-  updateRealtimeState(workspace, state => ({ ...state, drafts: { [task.id]: task } }));
-  const before = getRealtimeState(workspace);
-  assert.equal(updateRealtimeState(workspace, () => emptyState(), { requirePersist: true }), false);
-  assert.equal(getRealtimeState(workspace), before);
-  assert.equal(getRealtimeState(workspace).drafts[task.id].name, task.name);
-  assert.equal(stored.get(key), "{damaged-state");
+test("a stale refresh cannot regress a completed save, resurrect its acknowledged draft or drop a just-created task",()=>{
+  const task={...createTask("race-save","task"),revision:1},draft={...task,sql:"SELECT saved"};
+  const requested={...emptyState(),tasks:[task],drafts:{[task.id]:draft}};
+  const created={...createTask("race-save","created during refresh"),revision:1};
+  const current={...requested,tasks:[{...draft,revision:2},created],drafts:{}};
+  const merged=mergeRemoteState(current,requested,requested);
+  assert.equal(merged.tasks.find(item=>item.id===task.id)?.revision,2);assert.equal(merged.drafts[task.id],undefined);assert.ok(merged.tasks.some(item=>item.id===created.id));
 });

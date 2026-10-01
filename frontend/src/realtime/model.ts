@@ -1,4 +1,4 @@
-import type { KafkaDatasource, RealtimeBinding, RealtimeDatasource, RealtimeField, RealtimeJob, RealtimeRelease, RealtimeSavepoint, RealtimeTask } from "./types.ts";
+import type { KafkaDatasource, RealtimeBinding, RealtimeDatasource, RealtimeField, RealtimeRelease, RealtimeTask } from "./types.ts";
 
 export const uid = (prefix = "rt") => `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`;
 const timestamp = (now = Date.now()) => new Date(now).toISOString();
@@ -103,10 +103,10 @@ export function validateBinding(binding: RealtimeBinding, sources: RealtimeDatas
   } else if (!binding.physicalTable.trim()) errors.push("请选择或输入物理表名");
   if (binding.connector === "MYSQL_CDC") {
     if (!primaryKeys.length) errors.push("当前 MySQL CDC 配置器需要主键；无主键表需后续配置 chunk key");
-    if (!/^\d+(?:-\d+)?$/.test(binding.serverId)) errors.push("请输入有效的 MySQL CDC Server ID 或范围");
-    else {
+    if (binding.serverId && !/^\d+(?:-\d+)?$/.test(binding.serverId)) errors.push("请输入有效的 MySQL CDC Server ID 或范围，留空自动分配");
+    else if (binding.serverId) {
       const ids = binding.serverId.split("-").map(Number);
-      if (ids.some(id => id < 1 || id > 4294967295) || (ids.length === 2 && ids[1] < ids[0])) errors.push("Server ID 须为 1–4294967295 的整数或递增范围");
+      if (ids.some(id => id < 1 || id > 2147483647) || (ids.length === 2 && ids[1] < ids[0])) errors.push("Server ID 须为 1–2147483647 的整数或递增范围");
     }
     try { new Intl.DateTimeFormat("zh-CN", { timeZone: binding.timezone }); } catch { errors.push("请输入有效的数据库时区"); }
   }
@@ -131,8 +131,6 @@ export function validateTask(task: RealtimeTask, sources: RealtimeDatasource[]):
   const errors: string[] = [];
   if (!task.name.trim()) errors.push("任务名称不能为空");
   if (!task.sql.trim() || !task.sql.replace(/--[^\n]*|\/\*[\s\S]*?\*\//g, "").trim()) errors.push("请输入 Flink SQL");
-  if (!task.bindings.some(binding => binding.role === "SOURCE")) errors.push("至少配置一个 Source");
-  if (!task.bindings.some(binding => binding.role === "SINK")) errors.push("至少配置一个 Sink");
   const tableNames = new Set<string>();
   for (const binding of task.bindings) {
     errors.push(...validateBinding(binding, sources).map(message => `${binding.tableName || binding.role}：${message}`));
@@ -153,56 +151,4 @@ export function validateTask(task: RealtimeTask, sources: RealtimeDatasource[]):
 
 export function createRelease(task: RealtimeTask, existingReleases: RealtimeRelease[], note = ""): RealtimeRelease {
   return { id: uid("release"), taskId: task.id, releaseNo: Math.max(0, ...existingReleases.filter(item => item.taskId === task.id).map(item => item.releaseNo)) + 1, createdAt: timestamp(), note, snapshot: structuredClone(task) };
-}
-
-const event = (message: string, now: number) => ({ id: uid("event"), at: timestamp(now), message });
-export function createJob(release: RealtimeRelease, restoreFrom?: RealtimeSavepoint | string): RealtimeJob {
-  const now = Date.now();
-  const path = typeof restoreFrom === "string" ? restoreFrom : restoreFrom?.path;
-  if (typeof restoreFrom === "object" && restoreFrom.releaseId !== release.id) throw new Error("Savepoint 与启动版本不匹配");
-  return { id: uid("job"), taskId: release.taskId, releaseId: release.id, status: "STARTING", createdAt: timestamp(now), startedAt: timestamp(now), transitionAt: timestamp(now + 1200), restoredFrom: path, logs: [event(`[前端模拟] 提交发布版本 v${release.releaseNo}${path ? `，从 Savepoint ${path} 恢复` : ""}`, now)], savepoints: [], checkpointBase: 0 };
-}
-
-export function transitionJob(job: RealtimeJob, action: "STOP" | "RESTART" | "FAIL" | "SAVEPOINT", now = Date.now()): RealtimeJob {
-  const settled = settleJobs([job], now)[0];
-  if (action === "SAVEPOINT") {
-    if (settled.status !== "RUNNING") throw new Error("仅运行中的作业可创建 Savepoint");
-    const point: RealtimeSavepoint = { id: uid("savepoint"), createdAt: timestamp(now), path: `mock://savepoints/${job.id}/${now}`, releaseId: job.releaseId };
-    return { ...settled, savepoints: [...settled.savepoints, point], logs: [...settled.logs, event("[前端模拟] Savepoint 已生成，仅作为界面恢复记录", now)] };
-  }
-  if (action === "STOP") {
-    if (!["RUNNING", "STARTING", "RESTARTING"].includes(settled.status)) throw new Error("当前作业状态无法停止");
-    return { ...settled, status: "STOPPING", transitionAt: timestamp(now + 800), logs: [...settled.logs, event("[前端模拟] 正在停止作业", now)] };
-  }
-  if (action === "RESTART") {
-    if (!["RUNNING", "STOPPED", "FAILED"].includes(settled.status)) throw new Error("当前作业状态无法重启");
-    return { ...settled, status: "RESTARTING", stoppedAt: undefined, transitionAt: timestamp(now + 1600), logs: [...settled.logs, event("[前端模拟] 正在重启当前发布版本", now)] };
-  }
-  if (!["RUNNING", "STARTING", "RESTARTING"].includes(settled.status)) throw new Error("当前作业状态无法模拟故障");
-  return { ...settled, status: "FAILED", transitionAt: undefined, stoppedAt: timestamp(now), logs: [...settled.logs, event("[前端模拟] 作业发生故障，等待手动恢复", now)] };
-}
-
-export function settleJobs(jobs: RealtimeJob[], now = Date.now()): RealtimeJob[] {
-  return jobs.map(job => {
-    if (!job.transitionAt || Date.parse(job.transitionAt) > now) return job;
-    if (!["STARTING", "RESTARTING", "STOPPING"].includes(job.status)) return job;
-    const stopping = job.status === "STOPPING";
-    const at = Date.parse(job.transitionAt);
-    return { ...job, status: stopping ? "STOPPED" : "RUNNING", transitionAt: undefined, startedAt: stopping ? job.startedAt : timestamp(at), stoppedAt: stopping ? timestamp(at) : undefined, logs: [...job.logs, event(stopping ? "[前端模拟] 作业已停止" : "[前端模拟] 作业进入运行状态", at)] };
-  });
-}
-
-export function jobMetrics(job: RealtimeJob, release: RealtimeRelease, now = Date.now()) {
-  const end = job.stoppedAt ? Date.parse(job.stoppedAt) : now;
-  const uptimeSeconds = ["STARTING", "RESTARTING"].includes(job.status) ? 0 : Math.max(0, Math.floor((end - Date.parse(job.startedAt)) / 1000));
-  const active = job.status === "RUNNING";
-  const baseRate = 120 + (job.id.split("").reduce((sum, character) => sum + character.charCodeAt(0), 0) % 160);
-  const inputRate = active ? Math.round((baseRate + Math.sin(uptimeSeconds / 6) * 24) * release.snapshot.runtime.parallelism) : 0;
-  const period = Math.max(1, release.snapshot.runtime.checkpointSeconds);
-  const checkpointCount = job.checkpointBase + Math.floor(uptimeSeconds / period);
-  const checkpoints = Array.from({ length: Math.min(8, checkpointCount - job.checkpointBase) }, (_, index) => {
-    const id = checkpointCount - index;
-    return { id, at: timestamp(Date.parse(job.startedAt) + (id - job.checkpointBase) * period * 1000), durationMs: 220 + id % 5 * 37, status: "COMPLETED" };
-  });
-  return { uptimeSeconds, inputRate, outputRate: inputRate, latencyMs: active ? Math.round(35 + Math.abs(Math.sin(uptimeSeconds / 8)) * 22) : 0, checkpointCount, checkpoints };
 }

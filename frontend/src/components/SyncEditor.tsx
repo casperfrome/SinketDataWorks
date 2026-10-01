@@ -22,7 +22,7 @@ export default function SyncEditor({ object, onChange }: { object: StudioObject;
 
   useEffect(() => {
     let alive = true;
-    void api.datasources(object.workspaceId).then(data => { if (alive) setSources(data); }).catch(e => { if (alive) setError(e.message); });
+    void api.datasources(object.workspaceId).then(data => { if (alive) setSources(data.filter((s): s is DataSource => s.type !== "KAFKA")); }).catch(e => { if (alive) setError(e.message); });
     return () => { alive = false; };
   }, [object.workspaceId]);
   useEffect(() => {

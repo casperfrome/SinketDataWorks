@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBinding, createJob, createRelease, createTask, jobMetrics, mysqlTypeToFlink, settleJobs, transitionJob, validateBinding, validateKafkaSource, validateTask } from "../src/realtime/model.ts";
+import { createBinding, createRelease, createTask, mysqlTypeToFlink, validateBinding, validateKafkaSource, validateTask } from "../src/realtime/model.ts";
 import type { KafkaDatasource, RealtimeDatasource } from "../src/realtime/types.ts";
 
 const kafka: KafkaDatasource = { id: "kafka", workspaceId: "workspace", type: "KAFKA", name: "Kafka", bootstrapServers: "broker-1:9092,[::1]:9092", securityProtocol: "PLAINTEXT", saslMechanism: "PLAIN", username: "" };
@@ -19,8 +19,6 @@ test("task defaults and configured example validate without inventing real datas
   assert.equal(validateTask(configuredTask(), sources).length, 0);
   const errors = validateTask(blank, sources);
   assert.ok(errors.some(error => error.includes("SQL")));
-  assert.ok(errors.some(error => error.includes("Source")));
-  assert.ok(errors.some(error => error.includes("Sink")));
 });
 
 test("Kafka validates broker endpoints, optional SASL user, and disallows URL credentials", () => {
@@ -55,6 +53,8 @@ test("CDC validates key policy, server ID range capacity and timezone", () => {
   task.bindings[0].serverId = "5400-5402";
   assert.deepEqual(validateTask(task, sources), []);
   assert.ok(validateBinding({ ...task.bindings[0], serverId: "5402-5400" }, sources).some(error => error.includes("递增范围")));
+  assert.deepEqual(validateBinding({ ...task.bindings[0], serverId: "" }, sources), []);
+  assert.ok(validateBinding({ ...task.bindings[0], serverId: "2147483648" }, sources).some(error => error.includes("2147483647")));
   assert.ok(validateBinding({ ...task.bindings[0], timezone: "Fake/Timezone" }, sources).some(error => error.includes("时区")));
   assert.ok(validateBinding({ ...task.bindings[0], fields: task.bindings[0].fields.map(field => ({ ...field, primaryKey: false })) }, sources).some(error => error.includes("chunk key")));
 });
@@ -102,45 +102,8 @@ test("publish deep-copies SQL, connector fields and runtime and versions are tas
   assert.equal(first.snapshot.runtime.parallelism, 1);
 });
 
-test("simulated lifecycle settles once and preserves selected release and savepoints", () => {
-  const release = createRelease(configuredTask(), []);
-  const submitted = createJob(release);
-  const readyAt = Date.parse(submitted.transitionAt!);
-  assert.equal(settleJobs([submitted], readyAt - 1)[0].status, "STARTING");
-  const running = settleJobs([submitted], readyAt)[0];
-  assert.equal(running.status, "RUNNING");
-  assert.equal(settleJobs([running], readyAt + 100)[0], running);
-  const saved = transitionJob(running, "SAVEPOINT", readyAt + 500);
-  assert.equal(saved.savepoints.length, 1);
-  assert.match(saved.savepoints[0].path, /^mock:\/\/savepoints\//);
-  const stopping = transitionJob(saved, "STOP", readyAt + 1000);
-  const stopped = settleJobs([stopping], Date.parse(stopping.transitionAt!))[0];
-  assert.equal(stopped.status, "STOPPED");
-  assert.throws(() => transitionJob(stopped, "SAVEPOINT"), /仅运行中/);
-  const restarting = transitionJob(stopped, "RESTART", readyAt + 3000);
-  const restarted = settleJobs([restarting], Date.parse(restarting.transitionAt!))[0];
-  assert.equal(restarted.releaseId, release.id);
-  assert.equal(restarted.savepoints.length, 1);
-  assert.equal(restarted.status, "RUNNING");
-  assert.ok(restarted.logs.every(log => log.message.includes("前端模拟")));
-});
 
-test("failed/stopped metrics freeze, running metrics honor published checkpoint interval", () => {
-  const release = createRelease(configuredTask(), []);
-  const pending = createJob(release);
-  const readyAt = Date.parse(pending.transitionAt!);
-  const running = settleJobs([pending], readyAt)[0];
-  assert.equal(jobMetrics(pending, release, readyAt + 100000).checkpointCount, 0);
-  assert.equal(jobMetrics(running, release, readyAt + 120000).checkpointCount, 2);
-  assert.equal(jobMetrics(running, release, readyAt + 120000).checkpoints.length, 2);
-  const failed = transitionJob(running, "FAIL", readyAt + 150000);
-  const first = jobMetrics(failed, release, readyAt + 151000);
-  assert.deepEqual(jobMetrics(failed, release, readyAt + 800000), first);
-  assert.equal(first.inputRate, 0);
-  assert.equal(first.uptimeSeconds, 150);
-});
-
-test("savepoint object cannot restore an unrelated release", () => {
-  const release = createRelease(configuredTask(), []);
-  assert.throws(() => createJob(release, { id: "sp", releaseId: "different", createdAt: "2026-10-01T00:00:00Z", path: "mock://other" }), /不匹配/);
+test("handwritten SQL can validate locally without configuring bindings", () => {
+  const task = { ...createTask("workspace", "SQL only"), sql: "SELECT 1;" };
+  assert.deepEqual(validateTask(task, []), []);
 });

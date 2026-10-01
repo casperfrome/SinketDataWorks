@@ -342,7 +342,7 @@ function Studio({
     let alive = true;
     if (!createSpec || !["MySQL", "Doris"].includes(createSpec.nodeType)) return;
     setCreationSources([]); setCreationSourceError(""); createForm.setFieldValue("dataSourceId", undefined);
-    void api.datasources(workspaceId).then(items => { if (alive) { items=items.filter(s=>(s.type||"MYSQL")===sqlProvider(createSpec.nodeType)); setCreationSources(items); if (items.length === 1) createForm.setFieldValue("dataSourceId", items[0].id); } }).catch(e => { if (alive) setCreationSourceError(e.message); });
+    void api.datasources(workspaceId).then(items => { if (alive) { const sql=items.filter((s):s is DataSource=>s.type!=="KAFKA"&&s.type===sqlProvider(createSpec.nodeType)); setCreationSources(sql); if (sql.length === 1) createForm.setFieldValue("dataSourceId", sql[0].id); } }).catch(e => { if (alive) setCreationSourceError(e.message); });
     return () => { alive = false; };
   }, [workspaceId, createSpec?.nodeType]);
   const initialized = useRef(false),
@@ -1177,7 +1177,7 @@ function Studio({
           <Info size={13} />
           <span>
             【本地工作空间】SinketDataWorks
-            离线代码与版本保存在本地 MySQL，实时配置保存在当前浏览器。
+            离线与实时任务、发布版本保存在服务器，浏览器保留实时草稿与标签页状态。
           </span>
           <button onClick={() => setHelp(true)}>使用说明</button>
           <span className="announcement-spacer" />
@@ -1907,7 +1907,7 @@ function Studio({
             )
           ) : (
             <div className="management-content">
-              {activity === "scheduling" ? <SchedulingOperations workspaceId={workspaceId} selection={schedulingSelection} onConfigure={id=>{openObject(id);setInspector("schedule");setScheduleRevisions(current=>({...current,[id]:(current[id]||0)+1}));}} /> : activity === "datasources" ? <DatasourceView workspaceId={workspaceId} /> : <RecycleView workspaceId={workspaceId} onRestored={refresh} />}
+              {activity === "scheduling" ? <SchedulingOperations workspaceId={workspaceId} selection={schedulingSelection} onConfigure={id=>{openObject(id);setInspector("schedule");setScheduleRevisions(current=>({...current,[id]:(current[id]||0)+1}));}} /> : activity === "datasources" ? <DatasourceView key={workspaceId} workspaceId={workspaceId} /> : <RecycleView workspaceId={workspaceId} onRestored={refresh} />}
             </div>
           )}
           {chosenRun && (
@@ -2256,12 +2256,12 @@ function Studio({
           <p>
             在离线数据开发的项目目录选择节点类型并新建文件。MySQL、Doris 节点可执行 SQL；数据集成节点选择来源和目标后可在 MySQL 与 Doris 之间批量传输。调度参数在右侧配置，发布后可选择版本并应用到调度。
           </p>
-          <p>实时数据开发拥有独立的任务、Source / Sink 配置、Flink SQL 编辑器与实时运维。先在数据源入口配置 Kafka 或数据库连接，再配置并发布实时任务。当前实时内容保存到浏览器，运行与指标为前端模拟。</p>
+          <p>实时数据开发提供 Source / Sink 配置、Flink SQL 校验、计划与结果预览，以及独立的发布与实时运维。任务、数据源与版本保存到服务器，作业提交到真实 Flink 集群；浏览器保留未保存草稿与标签页状态。</p>
           <table>
             <tbody>
               {[
                 ["Ctrl + S", "保存当前文件"],
-                ["F8 / F9", "离线运行 / 停止；实时运维 / 停止模拟作业"],
+                ["F8 / F9", "离线运行 / 停止；实时运维 / 停止当前 Flink 作业"],
                 ["Shift + F8", "带参运行当前节点"],
                 ["Shift + Alt + F", "格式化 SQL"],
                 ["Ctrl + Shift + E", "打开离线数据开发"],
@@ -2406,7 +2406,7 @@ function Studio({
         <Alert
           type="success"
           title="本地工作空间已连接"
-          description="离线元数据使用 MySQL 持久化，实时配置保存到当前浏览器。"
+          description="离线与实时元数据使用 MySQL 持久化；浏览器仅保存实时草稿和界面状态。"
           showIcon
         />
         <div className="notification-list">

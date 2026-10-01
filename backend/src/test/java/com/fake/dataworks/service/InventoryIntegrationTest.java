@@ -163,10 +163,12 @@ class InventoryIntegrationTest {
     }
     List<Map<String,Object>> taskPlans(boolean enabled)throws Exception{
         List<Map<String,Object>> result=new ArrayList<>();
+        // The fixture database can use UTC while schedules use Shanghai's local date.
+        int businessDateOffset=Math.toIntExact(ChronoUnit.DAYS.between(LocalDate.now(ZoneId.of("Asia/Shanghai")),day2));
         for(int i=0;i<3;i++){
             if(i>0)edit(i,nodes.get(i).content().replace(":build_id",i==1?":upstream_dwd_build_id":":upstream_dws_build_id"),10);
             var release=tasks.publish(nodes.get(i).id(),nodes.get(i).version(),"task test");
-            result.add(taskSchedules.save(nodes.get(i).id(),null,Map.of("releaseId",release.get("id"),"enabled",enabled,"cron","0 * * * * *","dependencies",i==0?List.of():List.of(Map.of("taskId",nodes.get(i-1).id(),"alias",i==1?"dwd":"dws")))));
+            result.add(taskSchedules.save(nodes.get(i).id(),null,Map.of("releaseId",release.get("id"),"enabled",enabled,"cron","0 * * * * *","businessDateOffset",businessDateOffset,"dependencies",i==0?List.of():List.of(Map.of("taskId",nodes.get(i-1).id(),"alias",i==1?"dwd":"dws")))));
         }return result;
     }
     Map<String,Object> taskDone(String id)throws Exception{for(int i=0;i<500;i++){inventory.recover();var r=runs.required(id);if(Set.of("SUCCESS","FAILED","CANCELLED").contains(r.get("status"))){Thread.sleep(50);return r;}Thread.sleep(20);}throw new AssertionError(runs.required(id));}

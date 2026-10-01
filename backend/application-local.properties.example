@@ -10,3 +10,6 @@ studio.datasource.encryption-key=REPLACE_WITH_BASE64_32_BYTE_KEY
 
 # Optional: the separate Dunnelean service used by offline synchronization.
 # studio.sync.service-url=http://127.0.0.1:9876
+# Realtime control APIs run on the host; connector addresses are configured separately on each datasource.
+studio.flink.gateway-url=http://127.0.0.1:8083
+studio.flink.jobmanager-url=http://127.0.0.1:8081

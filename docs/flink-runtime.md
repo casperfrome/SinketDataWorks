@@ -1,6 +1,6 @@
 # Flink 2.2.1 本地实时运行环境
 
-本轮交付独立的 Flink、SQL Gateway、Kafka 容器，以及 MySQL CDC、MySQL JDBC、Doris 和 Kafka 的真实 SQL 链路验收。实时开发页面仍使用浏览器本地配置和模拟运维；本轮没有新增或修改业务后端接口。页面中的“启动”不会向下面的集群提交作业。
+本环境包含 Flink、SQL Gateway、Kafka，以及 MySQL CDC、MySQL JDBC、Doris 和 Kafka 连接器。实时开发工作台通过后端向本集群提交真实作业；操作与存储说明见[实时开发](realtime-development.md)。
 
 ## 环境与连接地址
 
@@ -100,5 +100,7 @@ MySQL CDC 要求 `log_bin=ON`、`binlog_format=ROW`、`binlog_row_image=FULL`，
 2026-10-01 本机实测：Flink 2.2.1 / Java 17、Kafka 4.3.1、MySQL 9.7.2、Doris 4.1.4，全部 9 项验收通过。TaskManager 从 Checkpoint 5 恢复，同 SQL 新作业从 Savepoint 恢复，恢复后继续插入和删除；JDBC、Doris 与 Upsert Kafka 回放的最终数据一致，删除键 2、3 的 tombstone 已验证。7 个测试作业均已终结，5 个会话已关闭。完整报告和每轮历史结果保存在本地 `.runtime/flink/`，不包含在 Git 提交中。
 
 可运行 SQL 示例见 `infra/flink/examples/`，用实际测试库、Topic 和本地账号替换模板占位符后，通过 SQL Gateway 或镜像内 SQL Client 执行。渲染后的完整本次 SQL 见 `.runtime/flink/acceptance-*.sql`。
+
+产品 API 验收使用 `scripts/test-realtime.py`，报告为 `.runtime/realtime/acceptance-report.json`。测试连接、发布、预览、真实多路写入及状态恢复；运行前须完成其他活动作业，恢复测试会重启专用 TaskManager。
 
 版本与接口依据：[Flink 官方下载](https://flink.apache.org/downloads/)、[Flink 2.2 SQL Gateway REST](https://nightlies.apache.org/flink/flink-docs-release-2.2/docs/dev/table/sql-gateway/rest/)、[Doris Flink 连接器](https://doris.apache.org/docs/dev/connection-integration/data-integration/flink-doris-connector/overview/)、[MySQL Connector/J 兼容说明](https://dev.mysql.com/doc/connector-j/en/connector-j-versions.html)。

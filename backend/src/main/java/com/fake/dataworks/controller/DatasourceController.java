@@ -19,4 +19,7 @@ public class DatasourceController {
     @GetMapping("/{id}/tables") public Object tables(@PathVariable String id) {return sources.tables(id);}
     @GetMapping("/{id}/tables/{table}/columns") public Object columns(@PathVariable String id,@PathVariable String table) {return sources.columns(id,table);}
     @GetMapping("/{id}/tables/{table}/sync-metadata") public Object syncMetadata(@PathVariable String id,@PathVariable String table) {return sources.syncMetadata(id,table);}
+    @GetMapping("/{id}/topics") public Object topics(@PathVariable String id){return sources.topics(id);}
+    @GetMapping("/{id}/tables/{table}/cdc-metadata") public Object cdcMetadata(@PathVariable String id,@PathVariable String table){return sources.cdcMetadata(id,table);}
+    @DeleteMapping("/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) public void delete(@PathVariable String id){sources.delete(id);}
 }
