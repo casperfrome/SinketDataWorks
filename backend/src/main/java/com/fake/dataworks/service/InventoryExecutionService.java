@@ -10,6 +10,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /** Stages remain private to a build. Only the final business transaction publishes all layers. */
 @Service
@@ -27,7 +29,7 @@ public class InventoryExecutionService {
     }
     private static final class Job {volatile Connection connection;volatile Statement statement;volatile boolean cancelled,timedOut;volatile Future<?> future;volatile ScheduledFuture<?> deadline;}
     private final DatasourceService sources;private final SqlGuard guard;private final StudioRepository repo;private final TransactionTemplate tx;
-    private final ExecutorService workers=Executors.newFixedThreadPool(2,r->new Thread(r,"inventory-stage"));
+    private final ThreadPoolExecutor workers=(ThreadPoolExecutor)Executors.newFixedThreadPool(2,r->new Thread(r,"inventory-stage"));
     private final ScheduledExecutorService deadlines=Executors.newScheduledThreadPool(1,r->new Thread(r,"inventory-deadline"));
     private final Map<String,Job> jobs=new ConcurrentHashMap<>();private final Map<String,Batch> batches=new ConcurrentHashMap<>();
     private volatile boolean closing;
@@ -57,7 +59,7 @@ public class InventoryExecutionService {
     private static String lockName(String database){return "inventory:"+UUID.nameUUIDFromBytes(database.toLowerCase(Locale.ROOT).getBytes(java.nio.charset.StandardCharsets.UTF_8));}
     public Batch begin(String id,DatasourceService.ConnectionSpec source,Map<String,Object> parameters){
         if(closing)throw new StudioException("SERVICE_STOPPING","服务正在停止",503);
-        if(repo.unfinishedRuns().stream().anyMatch(r->"RECOVERING".equals(r.get("status"))))throw StudioException.conflict("RECOVERY_REQUIRED","存在待核实的落表提交，请等待业务库恢复");
+        if(repo.unfinishedRuns().stream().anyMatch(r->"RECOVERING".equals(r.get("status"))&&Boolean.TRUE.equals(r.get("materialization"))&&sameDatabase(source,r.get("dataSource"))))throw StudioException.conflict("RECOVERY_REQUIRED","该业务库存在待核实的落表提交，请等待恢复");
         if(batches.values().stream().anyMatch(b->b.source.host().equalsIgnoreCase(source.host())&&b.source.port()==source.port()&&b.source.database().equalsIgnoreCase(source.database())))throw StudioException.conflict("MATERIALIZATION_BUSY","该业务库已有落表流程在运行");
         Connection lease=null;
         try {
@@ -72,6 +74,13 @@ public class InventoryExecutionService {
         Batch batch=begin(id,stage.source(),parameters);batch.targets=List.of(stage.target());batch.single=true;batch.lineage=Map.copyOf(lineage);return batch;
     }
     public void cancelTask(String id){Batch batch=batches.get(id);if(batch==null)return;synchronized(batch){if(batch.committed)return;batch.cancelled=true;stop(id);}}
+    private static boolean sameDatabase(DatasourceService.ConnectionSpec source,Object binding){if(!(binding instanceof Map<?,?> b))return false;return source.host().equalsIgnoreCase(Objects.toString(b.get("host"),""))&&b.get("port") instanceof Number p&&source.port()==p.intValue()&&source.database().equalsIgnoreCase(Objects.toString(b.get("database"),""));}
+    public boolean withdrawQueued(String id,String reason){return Boolean.TRUE.equals(tx.execute(t->{
+        var run=repo.run(id).orElseThrow();repo.lockWorkspace(run.get("workspaceId").toString());run=repo.run(id).orElseThrow();if(!"QUEUED".equals(run.get("status")))return false;
+        run.put("status","CANCELLED");run.put("errorCode",reason);run.put("finishedAt",ObjectService.now());run.put("elapsedMs",0);run.put("publicationStatus","NOT_PUBLISHED");run.put("logs",List.of("[调度] 周期实例已暂停，尚未开始的落表已撤回。"));if(!repo.transitionRun(run,"QUEUED"))return false;
+        Runnable cleanup=()->{Job job=jobs.get(id);if(job!=null){job.cancelled=true;if(job.future instanceof Runnable queued)workers.remove(queued);if(job.future!=null)job.future.cancel(false);jobs.remove(id,job);}Batch batch=batches.get(id);if(batch!=null){batch.cancelled=true;release(batch);}};
+        if(TransactionSynchronizationManager.isSynchronizationActive())TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){@Override public void afterCommit(){cleanup.run();}});else cleanup.run();return true;
+    }));}
     public Map<String,Object> newRun(PreparedStage stage){
         Map<String,Object> run=new LinkedHashMap<>();run.put("id",UUID.randomUUID().toString());run.put("workspaceId",stage.snapshot().workspaceId());run.put("objectId",stage.snapshot().id());run.put("objectName",stage.snapshot().name());run.put("objectVersion",stage.snapshot().version());run.put("provider","MYSQL");run.put("simulation",false);run.put("executionMode","MATERIALIZE");run.put("targetTable",stage.target());run.put("dataSource",stage.source().publicView());run.put("status","WAITING");run.put("createdAt",ObjectService.now());run.put("columns",List.of());run.put("rows",List.of());return run;
     }
@@ -162,6 +171,7 @@ public class InventoryExecutionService {
     public synchronized void recover(){
         for(var run:repo.unfinishedRuns()){
             if(!Boolean.TRUE.equals(run.get("materialization"))||(run.get("parentRunId")!=null&&!Boolean.TRUE.equals(run.get("taskExecution")))||batches.containsKey(run.get("id").toString()))continue;
+            if(run.get("triggerId")!=null&&run.get("startedAt")==null&&"QUEUED".equals(run.get("status")))continue;
             String expected=run.get("status").toString();
             try {
                 var binding=(Map<String,Object>)run.get("dataSource");var source=sources.forWorkspace(binding.get("id").toString(),run.get("workspaceId").toString());

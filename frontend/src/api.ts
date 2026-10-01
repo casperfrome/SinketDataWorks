@@ -1,4 +1,5 @@
 import type { ScheduleParameter, ParameterPreview, TaskRelease, TaskSchedule, TaskScheduleInput, TaskPreview, TaskTrigger } from "./types";
+import type { BackfillInput, BackfillPreview, BackfillResult, SchedulingInstance, SchedulingKind, SchedulingPage, SchedulingTask } from "./types";
 import type {
   SyncMetadata,
   Workspace,
@@ -99,6 +100,7 @@ export const api = {
   publishWorkflow: (id: string, expectedVersion: number, expectedNodeVersions: Record<string, number>, note: string) => request<WorkflowRelease>(`/workflows/${id}/releases`, json("POST", { expectedVersion, expectedNodeVersions, note })),
   runRelease: (id: string, businessDate?: string) => request<Run>(`/workflow-releases/${id}/runs`, json("POST", {businessDate})),
   taskReleases: (id: string) => request<TaskRelease[]>(`/tasks/${id}/releases`),
+  taskRelease: (id: string) => request<TaskRelease>(`/task-releases/${id}`),
   publishTask: (id: string, expectedVersion: number, note = "") => request<TaskRelease>(`/tasks/${id}/releases`, json("POST", {expectedVersion, note})),
   runTaskRelease: (id: string, businessDate?: string) => request<Run>(`/task-releases/${id}/runs`, json("POST", {businessDate})),
   taskSchedules: (workspaceId: string, taskId = "") => request<TaskSchedule[]>(`/task-schedules?${new URLSearchParams({workspaceId,taskId})}`),
@@ -112,6 +114,15 @@ export const api = {
   scheduleTriggers: (id: string, page = 1, status = "") => request<{items:ScheduleTrigger[];total:number}>(`/workflow-schedules/${id}/triggers?${new URLSearchParams({page:String(page),pageSize:"20",status})}`),
   rerunTrigger: (id: string) => request<Run>(`/schedule-triggers/${id}/rerun`, json("POST")),
   rerun: (id: string) => request<Run>(`/runs/${id}/rerun`, json("POST")),
+  schedulingTasks: (workspaceId: string, filters: Record<string, string> = {}) => request<SchedulingPage<SchedulingTask>>(`/scheduling/tasks?${new URLSearchParams({ workspaceId, pageSize: "20", ...filters })}`),
+  schedulingInstances: (workspaceId: string, filters: Record<string, string> = {}) => request<SchedulingPage<SchedulingInstance>>(`/scheduling/instances?${new URLSearchParams({ workspaceId, pageSize: "20", ...filters })}`),
+  schedulingInstance: (kind: SchedulingKind, id: string) => request<SchedulingInstance>(`/scheduling/instances/${kind}/${id}`),
+  setSchedulingEnabled: (kind: SchedulingKind, id: string, enabled: boolean, expectedVersion: number) => request<SchedulingTask>(`/scheduling/tasks/${kind}/${id}/enabled`, json("POST", { enabled, expectedVersion })),
+  rerunSchedulingInstance: (kind: SchedulingKind, id: string, mode: "ORIGINAL" | "LATEST" | "ATTEMPT", attemptRunId?: string) => request<SchedulingInstance>(`/scheduling/instances/${kind}/${id}/rerun`, json("POST", { mode: mode === "ATTEMPT" ? "ORIGINAL" : mode, attemptRunId })),
+  stopSchedulingInstance: (kind: SchedulingKind, id: string) => request<SchedulingInstance>(`/scheduling/instances/${kind}/${id}/stop`, json("POST")),
+  previewBackfill: (input: BackfillInput) => request<BackfillPreview>("/scheduling/backfills/preview", json("POST", input)),
+  submitBackfill: (input: BackfillInput & { previewToken: string; requestId: string }) => request<BackfillResult>("/scheduling/backfills", json("POST", input)),
+  backfillProgress: (batchKey: string) => request<BackfillResult>(`/scheduling/backfills/${encodeURIComponent(batchKey)}`),
   runDetail: (id: string) => request<Run>(`/runs/${id}`),
   runResults: (id: string, page = 1, statementIndex?: number) => request<QueryResult>(`/runs/${id}/results?page=${page}&pageSize=100${statementIndex === undefined ? "" : `&statementIndex=${statementIndex}`}`),
   datasources: (wid: string) => request<DataSource[]>(`/datasources?workspaceId=${encodeURIComponent(wid)}`),

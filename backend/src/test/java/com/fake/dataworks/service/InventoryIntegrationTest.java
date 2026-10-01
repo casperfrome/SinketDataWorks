@@ -130,7 +130,7 @@ class InventoryIntegrationTest {
     }
     @Test void restartChecksReceiptAndDoesNotOpenWritesWhileDatabaseIsUncertain() throws Exception {
         var committed=terminal(submit(day2));String committedId=committed.get("id").toString();var pending=new LinkedHashMap<>(committed);pending.put("status","RUNNING");pending.put("publicationStatus","RECOVERING");assertTrue(repo.transitionRun(pending,"SUCCESS"));
-        sources.save(sourceId,Map.of("port",1));inventory.recover();assertEquals("RECOVERING",runs.required(committedId).get("status"));assertEquals("RECOVERY_REQUIRED",assertThrows(StudioException.class,()->submit(day2)).code());
+        var originalSource=sources.forWorkspace(sourceId,workspace);sources.save(sourceId,Map.of("port",1));inventory.recover();assertEquals("RECOVERING",runs.required(committedId).get("status"));String blocked=UUID.randomUUID().toString();assertEquals("RECOVERY_REQUIRED",assertThrows(StudioException.class,()->inventory.begin(blocked,originalSource,inventory.parameters(Map.of("businessDate",day2.toString()),blocked))).code());assertEquals("DATASOURCE_UNAVAILABLE",assertThrows(StudioException.class,()->submit(day2)).code());
         sources.save(sourceId,Map.of("port",3307));inventory.recover();assertEquals("SUCCESS",runs.required(committedId).get("status"));
         var interrupted=new LinkedHashMap<>(pending);String id=UUID.randomUUID().toString();interrupted.put("id",id);interrupted.put("buildId",id);interrupted.put("status","RUNNING");repo.insertRun(interrupted,workflow);inventory.recover();assertEquals("FAILED",runs.required(id).get("status"));assertEquals("SERVICE_RESTARTED",runs.required(id).get("errorCode"));
     }
@@ -146,10 +146,10 @@ class InventoryIntegrationTest {
         assertEquals("FAILED",terminal(workflows.startRelease(r2,Map.of("businessDate",day2.toString())).get("id").toString()).get("status"));
         assertEquals("VERSION_CONFLICT",assertThrows(StudioException.class,()->schedules.save(workflow.id(),plan.get("id").toString(),update)).code());
     }
-    @Test void pauseMisfireAndOverlapAreRecordedWithoutCatchup() throws Exception {
+    @Test void pauseAndRestartRecordEachMissedSlotWhileOverlapWaitsForResources() throws Exception {
         var plan=plan(release().get("id").toString(),false,0);schedules.scan(Instant.now(),workspace);assertTrue(triggers(plan).isEmpty());var enabled=new LinkedHashMap<>(plan);enabled.put("enabled",true);enabled.put("expectedVersion",plan.get("version"));plan=schedules.save(workflow.id(),plan.get("id").toString(),enabled);
-        Instant now=Instant.now();due(plan,now.minusSeconds(300).truncatedTo(ChronoUnit.MINUTES));schedules.scan(now,workspace);assertEquals("MISSED_INTERVAL",triggers(plan).getFirst().get("reason"));assertTrue(repo.topRuns(workspace).isEmpty());
-        edit(0,InventorySql.dwd()+" WHERE SLEEP(8)=0",10);String active=submit(day2);due(plan,now.truncatedTo(ChronoUnit.MINUTES));schedules.scan(now,workspace);assertEquals("OVERLAP",triggers(plan).getFirst().get("reason"));runs.stop(active);terminal(active);
+        Instant now=Instant.now();due(plan,now.minusSeconds(300).truncatedTo(ChronoUnit.MINUTES));schedules.recordMissedOnResume(now.truncatedTo(ChronoUnit.MINUTES).minusSeconds(60),workspace);assertEquals(5,triggers(plan).size());assertTrue(triggers(plan).stream().allMatch(t->"MISSED_INTERVAL".equals(t.get("reason"))&&"SKIPPED".equals(t.get("status"))));assertTrue(repo.topRuns(workspace).isEmpty());
+        edit(0,InventorySql.dwd()+" WHERE SLEEP(8)=0",10);String active=submit(day2);due(plan,now.truncatedTo(ChronoUnit.MINUTES));schedules.scan(now,workspace);var waiting=triggers(plan).getFirst();assertEquals("WAITING_RESOURCE",waiting.get("status"));assertEquals("MATERIALIZATION_BUSY",waiting.get("reason"));assertNull(waiting.get("runId"));runs.stop(active);terminal(active);
         assertTrue(Instant.parse(schedules.get(plan.get("id").toString()).get("nextFireAt").toString()).isAfter(now));
     }
     @Test void restartSkipsEvenARecentlyMissedMinuteAndKeepsFutureSchedule() {

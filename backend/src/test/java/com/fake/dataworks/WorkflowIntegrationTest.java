@@ -58,7 +58,7 @@ class WorkflowIntegrationTest {
     String submit(StudioObject w,StudioObject... nodes) {return runs.submit(w.id(),"MANUAL",false,w.version(),versions(nodes)).get("id").toString();}
     Map<String,Object> publish(StudioObject w,StudioObject... nodes) {return workflows.publish(w.id(),w.version(),versions(nodes),"release test");}
     Map<String,Object> terminal(String id) throws Exception {
-        for(int i=0;i<400;i++) {var r=runs.required(id);if(!Set.of("WAITING","QUEUED","RUNNING").contains(r.get("status")))return r;Thread.sleep(30);}throw new AssertionError("No terminal state: "+id);
+        for(int i=0;i<400;i++) {var r=runs.required(id);if(Set.of("SUCCESS","FAILED","CANCELLED","SKIPPED").contains(r.get("status")))return r;Thread.sleep(30);}throw new AssertionError("No terminal state: "+id);
     }
     Map<String,Object> runningChild(String id) throws Exception {
         for(int i=0;i<200;i++) {var r=workflows.nodes(id).stream().filter(n->"RUNNING".equals(n.get("status"))).findFirst();if(r.isPresent())return r.get();Thread.sleep(20);}throw new AssertionError("No running child");
@@ -141,7 +141,7 @@ class WorkflowIntegrationTest {
         var slow=node("SELECT SLEEP(8) AS workflow_cancel_probe");var a=node("SELECT 1");var w=workflow(List.of(slow,a),new int[][]{{0,1}});
         String id=submit(w,slow,a);var child=runningChild(id);Thread.sleep(100);
         assertEquals("STOP_PARENT_WORKFLOW",assertThrows(StudioException.class,()->runs.stop(child.get("id").toString())).code());
-        assertEquals("CANCELLED",runs.stop(id).get("status"));assertEquals("CANCELLED",runs.stop(id).get("status"));Thread.sleep(300);
+        assertEquals(true,runs.stop(id).get("cancelRequested"));runs.stop(id);assertEquals("CANCELLED",terminal(id).get("status"));
         for(var r:workflows.nodes(id))assertEquals("CANCELLED",r.get("status"));
         try(Connection c=sources.open(sources.get(sourceId),5);Statement statement=c.createStatement();ResultSet rs=statement.executeQuery("SHOW PROCESSLIST")) {
             while(rs.next())assertFalse(Objects.toString(rs.getString("Info"),"").contains("workflow_cancel_probe"));
@@ -154,13 +154,15 @@ class WorkflowIntegrationTest {
         String cipher=jdbc.queryForObject("SELECT password_cipher FROM dw_datasource WHERE id=?",String.class,sourceId);
         String publicJson=json.write(workflows.release(id))+json.write(repo.runs(workspace));assertFalse(publicJson.contains(password));assertFalse(publicJson.contains(cipher));
     }
-    @Test void queueRejectionAndTimeoutStillContinueIndependentNodes() throws Exception {
+    @Test void resourceCongestionWaitsWithoutFailingAndTimeoutStillContinuesIndependentNodes() throws Exception {
         var slow=node("SELECT SLEEP(8) AS occupied");String first=runs.submit(slow.id(),"MANUAL",false,slow.version()).get("id").toString();
         for(int i=0;i<100&&!"RUNNING".equals(runs.required(first).get("status"));i++)Thread.sleep(20);
-        String queued=runs.submit(slow.id(),"MANUAL",false,slow.version()).get("id").toString();
+        var queuedNode=node(slow.content());String queued=runs.submit(queuedNode.id(),"MANUAL",false,queuedNode.version()).get("id").toString();
         var a=node("SELECT 1");var w=workflow(List.of(a,a),new int[][]{{0,1}});String id=submit(w,a);
-        assertEquals("FAILED",terminal(id).get("status"));assertEquals("QUEUE_FULL",children(id).get("n0").get("errorCode"));assertEquals("SKIPPED",children(id).get("n1").get("status"));
+        for(int i=0;i<100&&!"QUEUE_FULL".equals(children(id).get("n0").get("waitingReason"));i++)Thread.sleep(20);
+        assertEquals("WAITING",children(id).get("n0").get("status"));assertEquals("QUEUE_FULL",children(id).get("n0").get("waitingReason"));
         runs.stop(first);runs.stop(queued);
+        assertEquals("SUCCESS",terminal(id).get("status"));
         var timeout=objects.update(slow.id(),new ObjectInput(workspace,null,"NODE","MySQL",slow.name(),"",slow.content(),Map.of("run",Map.of("provider","MYSQL","dataSourceId",sourceId,"timeoutSeconds",1)),List.of(),false,slow.version()));
         var tw=workflow(List.of(timeout,a),new int[][]{});String tid=submit(tw,timeout,a);assertEquals("FAILED",terminal(tid).get("status"));assertEquals("QUERY_TIMEOUT",children(tid).get("n0").get("errorCode"));assertEquals("SUCCESS",children(tid).get("n1").get("status"));
     }
@@ -195,7 +197,7 @@ class WorkflowIntegrationTest {
         var slow=node("SELECT SLEEP(8) AS admission_probe");var w=workflow(List.of(slow),new int[][]{});
         String first=submit(w,slow),second=submit(w,slow);
         assertEquals("WORKFLOW_LIMIT",assertThrows(StudioException.class,()->submit(w,slow)).code());assertEquals(2,repo.topRuns(workspace).size());
-        workflows.stop(first);String third=submit(w,slow);assertNotNull(third);workflows.stop(second);workflows.stop(third);
+        workflows.stop(first);terminal(first);String third=submit(w,slow);assertNotNull(third);workflows.stop(second);workflows.stop(third);
     }
     @Test void completionAndRepeatedCancellationNeverRewriteTerminalStates() throws Exception {
         var a=node("SELECT SLEEP(0.03) AS short_query");var b=node("SELECT 1");var w=workflow(List.of(a,b),new int[][]{{0,1}});

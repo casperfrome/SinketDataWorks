@@ -13,12 +13,17 @@ import java.util.concurrent.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class MysqlExecutionProvider implements ExecutionProvider {
     private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(MysqlExecutionProvider.class);
     private final StudioRepository repo;private final DatasourceService sources;private final SqlGuard guard;private final JsonCodec json;private final TransactionTemplate transactions;
     private final ThreadPoolExecutor workers;
+    private final Semaphore capacity;
+    private final Set<String> reservations=ConcurrentHashMap.newKeySet();
+    private final Map<String,PreparedQuery> deferred=new ConcurrentHashMap<>();
     private final ScheduledExecutorService deadlines=Executors.newScheduledThreadPool(2,r->new Thread(r,"sql-deadline"));
     private volatile boolean shuttingDown;
     private final ConcurrentMap<String,Job> jobs=new ConcurrentHashMap<>();
@@ -31,6 +36,7 @@ public class MysqlExecutionProvider implements ExecutionProvider {
             @Value("${studio.mysql.workers:4}") int count,@Value("${studio.mysql.queue-size:32}") int queueSize) {
         this.repo=repo;this.sources=sources;this.guard=guard;this.json=json;this.transactions=transactions;
         workers=new ThreadPoolExecutor(count,count,0,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<>(queueSize),r->new Thread(r,"sql-query"),new ThreadPoolExecutor.AbortPolicy());
+        capacity=new Semaphore(count+queueSize);
     }
     public record PreparedQuery(StudioObject snapshot,DatasourceService.ConnectionSpec source,int timeout,SqlScript script) {
         @Override public String toString() {return "PreparedQuery[objectId="+snapshot.id()+"]";}
@@ -57,14 +63,25 @@ public class MysqlExecutionProvider implements ExecutionProvider {
         return run;
     }
     @Override public Map<String,Object> start(StudioObject snapshot,String mode,boolean fail) {
-        String sourceId=Objects.toString(RunService.config(snapshot).get("dataSourceId"),"");
-        var prepared=prepare(snapshot,sources.forWorkspace(sourceId,snapshot.workspaceId()));
-        var run=newRun(prepared,mode);ScheduleParameters.attach(run,snapshot,Map.of(),List.of());var internal=new LinkedHashMap<String,Object>((Map<String,Object>)run.get("parameters"));internal.put("bizdate",run.get("businessDate"));run.put("parameters",internal);repo.insertRun(run,snapshot);enqueueExisting(run.get("id").toString(),prepared);return run;
+        return transactions.execute(t->{repo.lockWorkspace(snapshot.workspaceId());if(repo.hasActiveTaskRun(snapshot.workspaceId(),snapshot.id(),""))throw StudioException.conflict("TASK_OVERLAP","当前任务仍在运行或核实提交");
+            String sourceId=Objects.toString(RunService.config(snapshot).get("dataSourceId"),"");
+            var prepared=prepare(snapshot,sources.forWorkspace(sourceId,snapshot.workspaceId()));
+            var run=newRun(prepared,mode);ScheduleParameters.attach(run,snapshot,Map.of(),List.of());var internal=new LinkedHashMap<String,Object>((Map<String,Object>)run.get("parameters"));internal.put("bizdate",run.get("businessDate"));run.put("parameters",internal);String id=run.get("id").toString();if(!reserve(id))throw new StudioException("QUEUE_FULL","执行资源已满，等待空闲资源",429);
+            boolean synchronizedTransaction=TransactionSynchronizationManager.isSynchronizationActive();if(synchronizedTransaction)TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){@Override public void afterCommit(){enqueueDeferred(id,prepared);}@Override public void afterCompletion(int status){if(status!=STATUS_COMMITTED)releaseReservation(id);}});
+            repo.insertRun(run,snapshot);if(!synchronizedTransaction)enqueueDeferred(id,prepared);return run;
+        });
     }
     public void enqueueExisting(String id,PreparedQuery prepared) {
-        Job job=new Job();job.results=SqlResults.pending(prepared.script());job.future=new FutureTask<>(()->{execute(id,prepared,job);return null;});jobs.put(id,job);
-        try {workers.execute(job.future);} catch(RejectedExecutionException e) {jobs.remove(id);finish(id,"FAILED","QUEUE_FULL","执行队列已满，请稍后重试",null,0);throw new StudioException("QUEUE_FULL","执行队列已满，请稍后重试",429);}
+        if(!tryEnqueueExisting(id,prepared)){finish(id,"FAILED","QUEUE_FULL","执行队列已满，请稍后重试",null,0);throw new StudioException("QUEUE_FULL","执行队列已满，请稍后重试",429);}
     }
+    public boolean tryEnqueueExisting(String id,PreparedQuery prepared) {
+        if(repo.run(id).filter(r->"QUEUED".equals(r.get("status"))).isEmpty()){releaseReservation(id);return true;}if(!reserve(id))return false;
+        Job job=new Job();job.results=SqlResults.pending(prepared.script());job.future=new FutureTask<>(()->{execute(id,prepared,job);return null;});jobs.put(id,job);
+        try {workers.execute(job.future);return true;} catch(RejectedExecutionException e) {jobs.remove(id,job);releaseReservation(id);return false;}
+    }
+    public boolean reserve(String id){if(shuttingDown)return false;if(reservations.contains(id))return true;if(!capacity.tryAcquire())return false;if(!reservations.add(id))capacity.release();return true;}
+    public void releaseReservation(String id){if(reservations.remove(id))capacity.release();}
+    public void enqueueDeferred(String id,PreparedQuery prepared){if(tryEnqueueExisting(id,prepared)){deferred.remove(id);return;}deferred.put(id,prepared);if(!shuttingDown)deadlines.schedule(()->{if(deferred.remove(id,prepared))enqueueDeferred(id,prepared);},1,TimeUnit.SECONDS);}
     private void execute(String id,PreparedQuery prepared,Job job) {
         long started=System.nanoTime();long statementStarted=started;
         try {
@@ -118,7 +135,7 @@ public class MysqlExecutionProvider implements ExecutionProvider {
             if(!job.cancelled&&!timeout)log.warn("SQL run failed: provider={}, run={}, type={}, code={}",prepared.source().type(),id,e.getClass().getSimpleName(),code);
             if(!shuttingDown)finish(id,unknown||!job.cancelled||timeout?"FAILED":"CANCELLED",code,message,SqlResults.envelope(job.results),elapsed(started));
         } finally {
-            if(job.deadline!=null)job.deadline.cancel(false);job.statement=null;job.connection=null;jobs.remove(id,job);
+            if(job.deadline!=null)job.deadline.cancel(false);job.statement=null;job.connection=null;jobs.remove(id,job);releaseReservation(id);
         }
     }
     private void checkStopped(Job job) {if(job.cancelled||job.timedOut||shuttingDown)throw new CancellationException();}
@@ -208,13 +225,20 @@ public class MysqlExecutionProvider implements ExecutionProvider {
             job.cancelled=true;
             if(workers.remove(job.future)) {
                 job.future.cancel(false);jobs.remove(id,job);
+                releaseReservation(id);
                 finish(id,"CANCELLED","QUERY_CANCELLED","用户已停止排队任务。",SqlResults.envelope(job.results),0);
             } else interruptQuery(job); // The worker alone settles an in-flight commit.
-        } else finish(id,"CANCELLED","QUERY_CANCELLED","用户已停止执行。",null,0);
+        } else {deferred.remove(id);releaseReservation(id);finish(id,"CANCELLED","QUERY_CANCELLED","用户已停止执行。",null,0);}
         return repo.run(id).orElseThrow();
     }
+    public boolean withdrawQueued(String id,String reason){return Boolean.TRUE.equals(transactions.execute(t->{
+        var run=repo.run(id).orElseThrow();repo.lockWorkspace(run.get("workspaceId").toString());run=repo.run(id).orElseThrow();if(!"QUEUED".equals(run.get("status")))return false;
+        run.put("status","CANCELLED");run.put("errorCode",reason);run.put("finishedAt",ObjectService.now());run.put("elapsedMs",0);run.put("logs",List.of("[调度] 周期实例已暂停，尚未开始的执行已撤回。"));if(!repo.transitionRun(run,"QUEUED"))return false;
+        Runnable cleanup=()->{deferred.remove(id);Job job=jobs.get(id);if(job!=null){job.cancelled=true;workers.remove(job.future);job.future.cancel(false);jobs.remove(id,job);}releaseReservation(id);};
+        if(TransactionSynchronizationManager.isSynchronizationActive())TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){@Override public void afterCommit(){cleanup.run();}});else cleanup.run();return true;
+    }));}
     @PreDestroy public void shutdown() {
         shuttingDown=true;
-        jobs.values().forEach(job->{job.cancelled=true;interruptQuery(job);});workers.shutdownNow();deadlines.shutdownNow();
+        jobs.values().forEach(job->{job.cancelled=true;interruptQuery(job);});workers.shutdownNow();deadlines.shutdownNow();deferred.clear();reservations.forEach(this::releaseReservation);
     }
 }

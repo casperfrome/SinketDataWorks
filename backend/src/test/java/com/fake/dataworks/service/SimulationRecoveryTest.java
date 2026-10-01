@@ -7,6 +7,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class SimulationRecoveryTest {
+    @Test void restartLeavesUndispatchedLogicalInstancesForSchedulingRecovery(){
+        var repo=mock(StudioRepository.class);var queued=new LinkedHashMap<String,Object>(Map.of("id","logical","status","QUEUED","provider","MYSQL","triggerId","instance","triggerType","BACKFILL","logs",List.of()));when(repo.unfinishedRuns()).thenReturn(List.of(queued));
+        var provider=new LocalSimulationProvider(repo,100,100,true);try{provider.recover();assertEquals("QUEUED",queued.get("status"));verify(repo,never()).transitionRun(anyMap(),anyString());verify(repo,never()).insertRun(anyMap(),any());}finally{provider.shutdown();}
+    }
     @Test void restartPreservesCompletedWritesAndMarksOnlyInFlightCommitUnknown() {
         StudioRepository repo=mock(StudioRepository.class);
         var run=new LinkedHashMap<String,Object>(Map.of("id","script","status","RUNNING","containsWrites",true,"logs",List.of()));

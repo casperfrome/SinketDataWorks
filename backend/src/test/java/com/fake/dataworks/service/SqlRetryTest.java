@@ -20,14 +20,15 @@ class SqlRetryTest {
             for(boolean writes:List.of(false,true)) {
                 when(repo.run("run")).thenReturn(Optional.of(Map.of("containsWrites",writes)));
                 var config=Map.of("retries",3,"retryIntervalSeconds",60);
-                var t=new LinkedHashMap<String,Object>(Map.of("id","trigger","runId","run","attempt",1,"scheduleSnapshot",config));
+                var t=new LinkedHashMap<String,Object>(Map.of("id","trigger","runId","run","attempt",1,"scheduleSnapshot",config,"triggerType","RERUN"));
                 ReflectionTestUtils.invokeMethod(task,"failure",t,"DB_TRANSIENT",Instant.now());assertEquals(writes?"FAILED":"RETRY_WAIT",t.get("status"));
-                var w=new LinkedHashMap<String,Object>(Map.of("id","workflow-trigger","runId","run","attempt",1,"scheduleSnapshot",config));
+                var w=new LinkedHashMap<String,Object>(Map.of("id","workflow-trigger","runId","run","attempt",1,"scheduleSnapshot",config,"triggerType","RERUN"));
                 ReflectionTestUtils.invokeMethod(workflow,"completeFailure",w,"DATASOURCE_UNAVAILABLE",Instant.now());assertEquals(writes?"FAILED":"RETRY_WAIT",w.get("status"));
                 when(taskService.release("release")).thenReturn(Map.of("containsWrites",writes));when(workflowService.release("release")).thenReturn(Map.of("containsWrites",writes));
-                t.remove("runId");t.put("releaseId","release");ReflectionTestUtils.invokeMethod(task,"failure",t,"QUEUE_FULL",Instant.now());assertEquals(writes?"FAILED":"RETRY_WAIT",t.get("status"));
-                w.remove("runId");w.put("releaseId","release");ReflectionTestUtils.invokeMethod(workflow,"completeFailure",w,"QUEUE_FULL",Instant.now());assertEquals(writes?"FAILED":"RETRY_WAIT",w.get("status"));
+                int taskRetries=((Number)t.get("attempt")).intValue()-((Number)t.getOrDefault("retryBase",1)).intValue(),workflowRetries=((Number)w.get("attempt")).intValue()-((Number)w.getOrDefault("retryBase",1)).intValue();
+                when(repo.run("run")).thenReturn(Optional.of(Map.of("containsWrites",writes,"status","FAILED","errorCode","QUEUE_FULL")));ReflectionTestUtils.invokeMethod(task,"refresh",t,Instant.now());assertEquals("WAITING_RESOURCE",t.get("status"));assertEquals(taskRetries,((Number)t.get("attempt")).intValue()-((Number)t.getOrDefault("retryBase",1)).intValue());
+                w.remove("runId");w.put("releaseId","release");ReflectionTestUtils.invokeMethod(workflow,"completeFailure",w,"QUEUE_FULL",Instant.now());assertEquals("WAITING_RESOURCE",w.get("status"));assertEquals(workflowRetries,((Number)w.get("attempt")).intValue()-((Number)w.getOrDefault("retryBase",1)).intValue());
             }
-        } finally {task.close();workflow.close();}
+        } finally {task.close();}
     }
 }

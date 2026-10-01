@@ -21,6 +21,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionCallback;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -103,6 +104,14 @@ class SyncControlTest {
         tick();assertEquals("RECOVERING",run.get("status"));assertEquals("SYNC_UNAVAILABLE",run.get("errorCode"));held();
         verify(client,never()).getRequest(anyString(),anyString(),anyString());
         verify(client,never()).submit(anyString(),any(),any());
+    }
+    @Test void queuedPauseWithdrawsOnlyBeforeTheDurableRemoteSubmissionBoundary(){
+        run.put("status","QUEUED");run.put("workspaceId","workspace");state.put("submitted",false);var tx=(TransactionTemplate)ReflectionTestUtils.getField(sync,"tx");when(tx.execute(any())).thenAnswer(i->{TransactionCallback<Boolean> callback=i.getArgument(0);return callback.doInTransaction(mock(TransactionStatus.class));});
+        assertTrue(sync.withdrawQueued("local","SCHEDULE_PAUSED"));assertEquals("CANCELLED",run.get("status"));verify(jdbc).update("DELETE FROM dw_sync_target_lock WHERE run_id=?","local");verify(client,never()).cancelRequest(anyString(),anyString(),any());verify(client,never()).submit(anyString(),any(),any());
+    }
+    @Test void aQueuedRemoteRequestAlreadySubmittedContinuesWhenThePlanIsPaused(){
+        run.put("status","QUEUED");run.put("workspaceId","workspace");state.put("submitted",true);var tx=(TransactionTemplate)ReflectionTestUtils.getField(sync,"tx");when(tx.execute(any())).thenAnswer(i->{TransactionCallback<Boolean> callback=i.getArgument(0);return callback.doInTransaction(mock(TransactionStatus.class));});
+        assertFalse(sync.withdrawQueued("local","SCHEDULE_PAUSED"));assertEquals("QUEUED",run.get("status"));held();verify(repo,never()).transitionRun(anyMap(),anyString());verify(client,never()).cancelRequest(anyString(),anyString(),any());
     }
     @Test @SuppressWarnings("unchecked") void incompatibleHealthFailsBeforeSubmissionAndReleasesTarget() {
         state.put("submitted",false);run.put("status","QUEUED");

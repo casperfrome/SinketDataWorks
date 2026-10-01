@@ -3,7 +3,8 @@ import { schemaLabel } from "./state/sync";
 import RecycleView from "./components/RecycleView";
 import type { DataSource } from "./types";
 import { defaultSchedule } from "./state/schedules";
-import type { TaskScheduleDraft, TaskRelease } from "./types";
+import type { SchedulingDraft, TaskRelease } from "./types";
+import SchedulingOperations, { type SchedulingSelection } from "./components/SchedulingOperations";
 import { tabsToClose, afterClosingTabs, restoreEditorTabs, tabCloseLabels, type TabCloseAction } from "./state/tabs";
 import {
   useState,
@@ -127,6 +128,7 @@ interface NodeRunRequest {
 
 const activities: { id: Activity; label: string; icon: typeof CodeXml }[] = [
   { id: "development", label: "数据开发", icon: CodeXml },
+  { id: "scheduling", label: "调度运维", icon: GitBranch },
   { id: "datasources", label: "数据源", icon: Database },
   { id: "recycle", label: "回收站", icon: Trash2 },
 ];
@@ -277,8 +279,9 @@ function Studio({
     [drafts, setDrafts] = useState<Record<string, StudioObject>>({});
   const [taskReleaseHistory,setTaskReleaseHistory]=useState<TaskRelease[]>([]);
   const [scheduleRevisions,setScheduleRevisions]=useState<Record<string,number>>({});
-  const [scheduleDrafts,setScheduleDrafts]=useState<Record<string,TaskScheduleDraft>>({});
-  const changeScheduleDraft=useCallback((id:string,draft?:TaskScheduleDraft)=>setScheduleDrafts(current=>{if(JSON.stringify(current[id])===JSON.stringify(draft))return current;const next={...current};if(draft)next[id]=draft;else delete next[id];return next;}),[]);
+  const [scheduleDrafts,setScheduleDrafts]=useState<Record<string,SchedulingDraft>>({});
+  const [schedulingSelection,setSchedulingSelection]=useState<SchedulingSelection>();
+  const changeScheduleDraft=useCallback((id:string,draft?:SchedulingDraft)=>setScheduleDrafts(current=>{if(JSON.stringify(current[id])===JSON.stringify(draft))return current;const next={...current};if(draft)next[id]=draft;else delete next[id];return next;}),[]);
   const [prefs, setPrefs] = useState<Preferences>({
       theme: "dark",
       editorFontSize: 13,
@@ -540,10 +543,13 @@ function Studio({
     saveRequests.current.set(submitted.id, request);
     return request;
   };
+  const applyScheduleDraft = (draft: SchedulingDraft) => "workflowId" in draft.input
+    ? api.saveSchedule(draft.input.workflowId, draft.input, draft.id)
+    : api.saveTaskSchedule(draft.input, draft.id);
   const saveCurrent = async (includeSchedule=true): Promise<StudioObject | undefined> => {
     if (!active) return;
     const saved = await saveObject(active, !!drafts[active.id]);
-    if(saved&&includeSchedule&&scheduleDrafts[active.id]){try{const d=scheduleDrafts[active.id];await api.saveTaskSchedule(d.input,d.id);changeScheduleDraft(active.id,undefined);setScheduleRevisions(v=>({...v,[active.id]:(v[active.id]||0)+1}));}catch(e){message.error(errorText(e));return;}}
+    if(saved&&includeSchedule&&scheduleDrafts[active.id]){try{await applyScheduleDraft(scheduleDrafts[active.id]);changeScheduleDraft(active.id,undefined);setScheduleRevisions(v=>({...v,[active.id]:(v[active.id]||0)+1}));}catch(e){message.error(errorText(e));return;}}
     if (saved && dirty) message.success("已保存到 MySQL");
     return saved;
   };
@@ -559,7 +565,7 @@ function Studio({
     const unsaved=closing.filter(id=>drafts[id]||scheduleDrafts[id]);
     if(!unsaved.length){close();return;}
     let pending=false;const savedObjects=new Set<string>(),savedSchedules=new Set<string>();
-    const dialog=modal.confirm({title:"关闭标签页 · 未保存的修改",content:<><p>以下文件有未保存的代码或调度配置：</p><ul>{unsaved.map(id=><li key={id}>{drafts[id]?.name||objects.find(o=>o.id===id)?.name||id}{scheduleDrafts[id]&&" · 调度配置"}</li>)}</ul></>,footer:()=> <Space><Button onClick={()=>{if(!pending)dialog.destroy();}}>取消</Button><Button danger onClick={()=>{if(!pending){close();dialog.destroy();}}}>丢弃并关闭</Button><Button type="primary" onClick={async()=>{if(pending)return;pending=true;try{for(const id of unsaved){const object=drafts[id]||objects.find(o=>o.id===id);if(object&&drafts[id]&&!savedObjects.has(id)){if(!await saveObject(object,true))return;savedObjects.add(id);}const schedule=scheduleDrafts[id];if(schedule&&!savedSchedules.has(id)){await api.saveTaskSchedule(schedule.input,schedule.id);savedSchedules.add(id);changeScheduleDraft(id,undefined);}}close();dialog.destroy();}catch(e){message.error(errorText(e));}finally{pending=false;}}}>保存并关闭</Button></Space>});
+    const dialog=modal.confirm({title:"关闭标签页 · 未保存的修改",content:<><p>以下文件有未保存的代码或调度配置：</p><ul>{unsaved.map(id=><li key={id}>{drafts[id]?.name||objects.find(o=>o.id===id)?.name||id}{scheduleDrafts[id]&&" · 调度配置"}</li>)}</ul></>,footer:()=> <Space><Button onClick={()=>{if(!pending)dialog.destroy();}}>取消</Button><Button danger onClick={()=>{if(!pending){close();dialog.destroy();}}}>丢弃并关闭</Button><Button type="primary" onClick={async()=>{if(pending)return;pending=true;try{for(const id of unsaved){const object=drafts[id]||objects.find(o=>o.id===id);if(object&&drafts[id]&&!savedObjects.has(id)){if(!await saveObject(object,true))return;savedObjects.add(id);}const schedule=scheduleDrafts[id];if(schedule&&!savedSchedules.has(id)){await applyScheduleDraft(schedule);savedSchedules.add(id);changeScheduleDraft(id,undefined);}}close();dialog.destroy();}catch(e){message.error(errorText(e));}finally{pending=false;}}}>保存并关闭</Button></Space>});
   };
   const closeTab=(id:string)=>closeTabs([id]);
   const tabMenu=(anchor:string)=>({items:(Object.keys(tabCloseLabels) as TabCloseAction[]).map(key=>({key,label:tabCloseLabels[key],disabled:!tabsToClose(tabs,anchor,key,new Set([...Object.keys(drafts),...Object.keys(scheduleDrafts)])).length})),onClick:({key}:{key:string})=>closeTabs(tabsToClose(tabs,anchor,key as TabCloseAction,new Set([...Object.keys(drafts),...Object.keys(scheduleDrafts)])))});
@@ -575,6 +581,7 @@ function Studio({
         ]);
         widRef.current = id;
         setWorkspaceId(id);
+        setSchedulingSelection(undefined);
         setWorkflowRelease(null);
         setObjects(os);
         setRuns(rs);
@@ -1176,7 +1183,7 @@ function Studio({
       )}
       {!zen && (
         <header className="global-header">
-          <Dropdown trigger={["click"]} menu={{items: activities.map(a => ({ key: a.id, label: a.label })), onClick: ({key}) => setActivity(key as Activity)}}><button className="product-toggle" aria-label="切换板块"><MenuIcon size={17}/></button></Dropdown>
+          <Dropdown trigger={["click"]} menu={{items: activities.map(a => ({ key: a.id, label: a.label })), onClick: ({key}) => {if(key==="scheduling")setSchedulingSelection(undefined);setActivity(key as Activity);}}}><button className="product-toggle" aria-label="切换板块"><MenuIcon size={17}/></button></Dropdown>
           <div className="brand">
             <Layers3 size={21} />
             <span>
@@ -1251,6 +1258,7 @@ function Studio({
                   aria-label={a.label}
                   className={`activity-button ${activity === a.id ? "selected" : ""}`}
                   onClick={() => {
+                    if(a.id==="scheduling")setSchedulingSelection(undefined);
                     setActivity(a.id);
                     setSidebarVisible(true);
                   }}
@@ -1830,6 +1838,7 @@ function Studio({
                         scheduleDraft={scheduleDrafts[active.id]}
                         onScheduleDraft={draft=>changeScheduleDraft(active.id,draft)}
                         onPublishTask={()=>publishTask(active.id)}
+                        onViewInstances={(kind,scheduleId)=>{setSchedulingSelection({kind,scheduleId});setActivity("scheduling");}}
                         onSaveObject={async()=>!!await saveObject(active,!!drafts[active.id])}
                       />
                     </aside>
@@ -1893,7 +1902,7 @@ function Studio({
             )
           ) : (
             <div className="management-content">
-              {activity === "datasources" ? <DatasourceView workspaceId={workspaceId} /> : <RecycleView workspaceId={workspaceId} onRestored={refresh} />}
+              {activity === "scheduling" ? <SchedulingOperations workspaceId={workspaceId} selection={schedulingSelection} onConfigure={id=>{openObject(id);setInspector("schedule");setScheduleRevisions(current=>({...current,[id]:(current[id]||0)+1}));}} /> : activity === "datasources" ? <DatasourceView workspaceId={workspaceId} /> : <RecycleView workspaceId={workspaceId} onRestored={refresh} />}
             </div>
           )}
           {chosenRun && (

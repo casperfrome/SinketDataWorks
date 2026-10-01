@@ -61,3 +61,15 @@
 .parameter-preview-controls { margin-top: 10px; }
 .datasource-binding { display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-bottom: 1px solid var(--border); background: var(--panel-bg); font-size: 12px; }
 .datasource-binding .ant-select { min-width: 150px; max-width: 320px; flex: 1; }
+.scheduling-operations { padding: 20px 24px; width: 100%; min-width: 0; overflow: auto; }
+.operations-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.operations-heading h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.operations-heading p { color: var(--muted); font-size: 12px; margin: 6px 0; }
+.operations-filters { margin: 4px 0 16px; }
+.operations-live,.operations-note { font-size: 11px; color: var(--muted); }
+.operations-live { border-left: 2px solid var(--accent); padding-left: 8px; }
+.operations-instance-context { margin: 18px 0; padding: 12px; border: 1px solid var(--border); }
+.operations-dependencies section { border: 1px solid var(--border); border-left: 3px solid var(--accent); margin: 8px 0; padding: 10px 12px; }
+.operations-dependencies strong { margin-right: 10px; }
+.operations-dependency-slot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
+@media(max-width:900px) { .scheduling-operations { padding: 14px; } }

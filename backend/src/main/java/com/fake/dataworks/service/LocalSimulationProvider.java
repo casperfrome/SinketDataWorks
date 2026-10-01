@@ -25,6 +25,7 @@ public class LocalSimulationProvider implements ExecutionProvider {
         for(Map<String,Object> run:repo.unfinishedRuns()) {
             if("SYNC".equals(run.get("provider"))||Boolean.TRUE.equals(run.get("containsSync")))continue;
             if(Boolean.TRUE.equals(run.get("materialization"))||"MATERIALIZE".equals(run.get("executionMode")))continue;
+            if(run.get("triggerId")!=null&&run.get("startedAt")==null&&Set.of("WAITING","QUEUED").contains(run.get("status"))&&Set.of("MYSQL","DORIS","WORKFLOW").contains(run.get("provider")))continue;
             String expected=run.get("status").toString();
             var result=repo.result(run.get("id").toString()).orElse(Map.of());boolean unknown=SqlResults.recover(result);
             if(!SqlResults.items(result).isEmpty()) {repo.saveResult(run.get("id").toString(),result);run.put("statements",SqlResults.summaries(SqlResults.items(result)));}

@@ -53,9 +53,16 @@ public class StudioRepository {
     public void saveResult(String id,Map<String,Object> result) {jdbc.update("INSERT INTO dw_run_result(run_id,data_json) VALUES(?,?) ON DUPLICATE KEY UPDATE data_json=?",id,json.write(result),json.write(result));}
     public Optional<Map<String,Object>> result(String id) {return jdbc.query("SELECT data_json FROM dw_run_result WHERE run_id=?",(r,n)->json.map(r.getString(1)),id).stream().findFirst();}
     public Optional<Map<String,Object>> run(String id) { return jdbc.query("SELECT data_json FROM dw_run WHERE id=?",(r,n)->json.map(r.getString(1)),id).stream().findFirst(); }
+    public Map<String,Map<String,Object>> runsByIds(Collection<String> ids) {
+        var unique=new ArrayList<>(new LinkedHashSet<>(ids));Map<String,Map<String,Object>> result=new HashMap<>();
+        for(int offset=0;offset<unique.size();offset+=5000){var chunk=unique.subList(offset,Math.min(unique.size(),offset+5000));String placeholders=String.join(",",Collections.nCopies(chunk.size(),"?"));for(var run:jdbc.query("SELECT JSON_REMOVE(data_json,'$.rows','$.columns','$.logs') FROM dw_run WHERE id IN ("+placeholders+")",(r,n)->json.map(r.getString(1)),chunk.toArray()))result.put(run.get("id").toString(),run);}return result;
+    }
     public List<Map<String,Object>> runs(String workspace) { return jdbc.query("SELECT data_json FROM dw_run WHERE workspace_id=? ORDER BY created_at DESC",(r,n)->json.map(r.getString(1)),workspace); }
     public List<Map<String,Object>> unfinishedRuns() { return jdbc.query("SELECT data_json FROM dw_run WHERE status IN ('WAITING','QUEUED','RUNNING','RECOVERING')",(r,n)->json.map(r.getString(1))); }
     public List<Map<String,Object>> topRuns(String workspace) { return jdbc.query("SELECT data_json FROM dw_run WHERE workspace_id=? AND parent_run_id IS NULL ORDER BY created_at DESC",(r,n)->json.map(r.getString(1)),workspace); }
+    public boolean hasActiveTaskRun(String workspace,String task,String excludedRunId) {
+        return !jdbc.query("SELECT id FROM dw_run WHERE workspace_id=? AND object_id=? AND status IN ('QUEUED','RUNNING','RECOVERING') AND id<>? LIMIT 1",(r,n)->r.getString(1),workspace,task,Objects.toString(excludedRunId,"")).isEmpty();
+    }
     public List<Map<String,Object>> childRuns(String id) { return jdbc.query("SELECT data_json FROM dw_run WHERE parent_run_id=? ORDER BY created_at,id",(r,n)->json.map(r.getString(1)),id); }
     public int nextReleaseNo(String workflow) { return jdbc.queryForObject("SELECT COALESCE(MAX(release_no),0)+1 FROM dw_workflow_release WHERE workflow_id=?",Integer.class,workflow); }
     public void insertRelease(Map<String,Object> release,Object bundle) {

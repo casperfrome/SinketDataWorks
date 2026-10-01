@@ -116,7 +116,7 @@ export interface Run {
 }
 export interface WorkflowRelease {
   id: string; workspaceId: string; workflowId: string; releaseNo: number;
-  workflowVersion: number; name: string; note: string; createdAt: string;
+  workflowVersion: number; name: string; note: string; createdAt: string; containsWrites?: boolean;
   bundle?: { schemaVersion: number; workflow: StudioObject;
     nodes: { graphNodeId: string; object: StudioObject }[]; datasourceBindings: DataSource[] };
 }
@@ -139,12 +139,14 @@ export interface ScheduleTrigger {
   attempts: { attempt: number; runId: string; createdAt: string }[];
 }
 export interface SchedulePreview { scheduledAt: string; localTime: string; businessDate: string }
-export interface TaskDependency { taskId: string; name?: string; alias: string }
-export interface TaskRelease { id: string; taskId: string; workspaceId: string; releaseNo: number; objectVersion: number; name: string; note: string; createdAt: string }
+export interface TaskDependency { taskId: string; name?: string; alias: string; matchMode?: "LATEST" | "ALL_DAY" }
+export interface TaskRelease { id: string; taskId: string; workspaceId: string; releaseNo: number; objectVersion: number; name: string; note: string; createdAt: string; snapshot?: StudioObject; containsWrites?: boolean }
 export interface TaskScheduleInput extends ScheduleConfig { taskId: string; releaseId: string; dependencies: TaskDependency[]; expectedVersion?: number }
 export interface TaskSchedule extends TaskScheduleInput { id: string; workspaceId: string; name: string; version: number; releaseNo?: number; nextFireAt?: string }
 export interface TaskScheduleDraft { input: TaskScheduleInput; id?: string }
-export interface DependencySlot extends TaskDependency { scheduleId?: string; scheduledAt?: string; triggerId?: string; status?: string; reason?: string; warning?: string; cron?: string }
+export interface WorkflowScheduleDraft { input: ScheduleConfig & { workflowId: string; releaseId: string; expectedVersion?: number }; id?: string }
+export type SchedulingDraft = TaskScheduleDraft | WorkflowScheduleDraft;
+export interface DependencySlot extends TaskDependency { scheduleId?: string; scheduledAt?: string; triggerId?: string; status?: string; reason?: string; warning?: string; cron?: string; expectedCount?: number; expectedSlots?: string[]; timezone?: string }
 export interface TaskPreview extends SchedulePreview { dependencies: DependencySlot[] }
 export interface TaskTrigger extends ScheduleTrigger { taskId: string; dependencySlots: DependencySlot[]; upstreamRuns?: {taskId: string; alias: string; runId: string; buildId?: string}[] }
 export type DataSourceInput = Omit<DataSource, "id" | "passwordSet"> & { password?: string };
@@ -183,7 +185,34 @@ export interface Preferences {
   wordWrap?: boolean;
   [key: string]: unknown;
 }
-export type Activity = "development" | "datasources" | "recycle";
+export type Activity = "development" | "scheduling" | "datasources" | "recycle";
+export type SchedulingKind = "TASK" | "WORKFLOW";
+export interface SchedulingTask {
+  kind: SchedulingKind; objectId: string; scheduleId?: string; name: string; nodeType?: string;
+  enabled: boolean; status: "ENABLED" | "PAUSED" | "UNCONFIGURED" | "ENDED";
+  releaseId?: string; releaseNo?: number; latestReleaseId?: string; latestReleaseNo?: number;
+  version?: number; cron?: string; timezone?: string; nextFireAt?: string | null;
+  latestStatus?: string; latestReason?: string; retrySupported?: boolean;
+}
+export interface SchedulingInstance extends ScheduleTrigger {
+  kind: SchedulingKind; name: string; objectId?: string; timezone?: string;
+  source?: "SCHEDULED" | "BACKFILL" | "RERUN"; batchKey?: string;
+  dependencySlots?: DependencySlot[]; nextRetryAt?: string; finishedAt?: string;
+  attempts: { attempt: number; runId: string; createdAt: string; status?: string; reason?: string; releaseNo?: number; sourceCutoffAt?: string }[];
+}
+export interface SchedulingPage<T> { items: T[]; total: number; page: number; pageSize: number }
+export interface BackfillInput {
+  workspaceId: string; kind: SchedulingKind; scheduleId: string; startDate: string; endDate: string;
+  startTime?: string; endTime?: string; includeDownstream: boolean;
+}
+export interface BackfillPreviewItem {
+  kind: SchedulingKind; scheduleId: string; taskId?: string; name: string;
+  scheduledAt: string; businessDate: string; timezone?: string; status?: string; reason?: string; existingTriggerId?: string;
+  releaseId?: string; releaseNo?: number; parameters?: Record<string, string>;
+  dependencySlots?: DependencySlot[]; missingUpstreams?: unknown[];
+}
+export interface BackfillPreview { token: string; items: BackfillPreviewItem[]; total: number; warnings: string[] }
+export interface BackfillResult { batchKey: string; instances: SchedulingInstance[]; total: number; stats?: Record<string, number> }
 export interface ScheduleParameter { name: string; value: string; source: "CODE" | "MANUAL" }
 export interface ParameterPreview { businessDate: string; scheduledAt: string; timezone: string; values: Record<string,string> }
 export interface RunParameterValue {

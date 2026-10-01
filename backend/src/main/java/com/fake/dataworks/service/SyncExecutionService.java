@@ -17,6 +17,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /** Single-host durable control plane. Remote data and credentials never enter public snapshots. */
 @Service
@@ -114,6 +116,12 @@ public class SyncExecutionService {
         var run=repo.run(id).orElseThrow();if(!PENDING.contains(run.get("status")))return run;
         jdbc.update("UPDATE dw_sync_execution SET cancel_requested=TRUE,updated_at=? WHERE run_id=?",ObjectService.now(),id);run.put("cancelRequested",true);run.put("syncStage","CANCELLING");repo.updateRun(run);startClock();return run;
     }}
+    public boolean withdrawQueued(String id,String reason){return Boolean.TRUE.equals(tx.execute(t->{
+        var initial=repo.run(id).orElseThrow();repo.lockWorkspace(initial.get("workspaceId").toString());synchronized(mutex(id)){var run=repo.run(id).orElseThrow();if(!"QUEUED".equals(run.get("status"))||yes(row(id).get("submitted")))return false;
+        run.put("status","CANCELLED");run.put("errorCode",reason);run.put("finishedAt",ObjectService.now());run.put("elapsedMs",0);run.put("syncStage","PAUSED");run.put("logs",List.of("[调度] 周期实例已暂停，同步尚未派发。"));if(!repo.transitionRun(run,"QUEUED"))return false;
+        jdbc.update("UPDATE dw_sync_execution SET cancel_requested=TRUE,recovery_reason=?,updated_at=? WHERE run_id=?",reason,ObjectService.now(),id);jdbc.update("DELETE FROM dw_sync_target_lock WHERE run_id=?",id);
+        Runnable cleanup=()->{specs.remove(id);prepared.remove(id);};if(TransactionSynchronizationManager.isSynchronizationActive())TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){@Override public void afterCommit(){cleanup.run();}});else cleanup.run();return true;
+    }}));}
     private Map<String,Object> row(String id){return jdbc.queryForMap("SELECT * FROM dw_sync_execution WHERE run_id=?",id);}
     private static boolean yes(Object x){return Boolean.TRUE.equals(x)||x instanceof Number n&&n.intValue()!=0;}
     private void tick(){
@@ -129,8 +137,8 @@ public class SyncExecutionService {
         try {
             if(!submitted){
                 if(cancel){finish(run,"CANCELLED",Objects.toString(state.get("recovery_reason"),"SYNC_CANCELLED"));return;}
-                var p=prepared.get(id);if(p==null){finish(run,"FAILED","SERVICE_RESTARTED");return;}
-                boolean acquired=Boolean.TRUE.equals(tx.execute(t->{jdbc.update("INSERT IGNORE INTO dw_sync_target_lock(target_key,run_id) VALUES(?,?)",p.targetKey(),id);return id.equals(jdbc.queryForObject("SELECT run_id FROM dw_sync_target_lock WHERE target_key=?",String.class,p.targetKey()));}));
+                var p=prepared.get(id);if(p==null){if(run.get("triggerId")!=null&&run.get("startedAt")==null&&"QUEUED".equals(run.get("status")))return;finish(run,"FAILED","SERVICE_RESTARTED");return;}
+                boolean acquired=Boolean.TRUE.equals(tx.execute(t->{var current=jdbc.queryForMap("SELECT * FROM dw_sync_execution WHERE run_id=? FOR UPDATE",id);if(yes(current.get("cancel_requested"))||!PENDING.contains(repo.run(id).orElseThrow().get("status")))return false;jdbc.update("INSERT IGNORE INTO dw_sync_target_lock(target_key,run_id) VALUES(?,?)",p.targetKey(),id);return id.equals(jdbc.queryForObject("SELECT run_id FROM dw_sync_target_lock WHERE target_key=?",String.class,p.targetKey()));}));
                 if(!acquired)return;
                 var health=client.health(base);store=Objects.toString(health.get("state_store_id"),null);if(store==null)throw StudioException.bad("SYNC_UPGRADE_REQUIRED","请更新 Dunnelean 至支持可靠取消的版本");
                 var spec=specs.computeIfAbsent(id,k->spec(p,run,true));
@@ -203,8 +211,8 @@ public class SyncExecutionService {
     }}
     public void recover(){
         if(recoverOnStart){
-            for(var run:repo.unfinishedRuns())if("SYNC".equals(run.get("provider"))){String id=run.get("id").toString();jdbc.update("UPDATE dw_sync_execution SET cancel_requested=TRUE,recovery_reason='SERVICE_RESTARTED' WHERE run_id=?",id);run.put("status","RECOVERING");run.put("cancelRequested",true);run.put("recoveryReason","SERVICE_RESTARTED");repo.updateRun(run);}
-            for(var parent:repo.unfinishedRuns())if(Boolean.TRUE.equals(parent.get("containsSync"))){parent.put("status","RECOVERING");parent.put("recoveryReason","SERVICE_RESTARTED");parent.put("cancelRequested",true);repo.updateRun(parent);for(var child:repo.childRuns(parent.get("id").toString()))if("WAITING".equals(child.get("status"))||"SYNC".equals(child.get("provider"))&&!exists(child.get("id").toString())){child.put("status","SKIPPED");child.put("errorCode","SERVICE_RESTARTED");child.put("finishedAt",ObjectService.now());repo.updateRun(child);}}
+            for(var run:repo.unfinishedRuns())if("SYNC".equals(run.get("provider"))){String id=run.get("id").toString();if(run.get("triggerId")!=null&&run.get("startedAt")==null&&"QUEUED".equals(run.get("status"))&&!yes(row(id).get("submitted")))continue;jdbc.update("UPDATE dw_sync_execution SET cancel_requested=TRUE,recovery_reason='SERVICE_RESTARTED' WHERE run_id=?",id);run.put("status","RECOVERING");run.put("cancelRequested",true);run.put("recoveryReason","SERVICE_RESTARTED");repo.updateRun(run);}
+            for(var parent:repo.unfinishedRuns())if(Boolean.TRUE.equals(parent.get("containsSync"))){if(parent.get("triggerId")!=null&&parent.get("startedAt")==null&&"QUEUED".equals(parent.get("status")))continue;parent.put("status","RECOVERING");parent.put("recoveryReason","SERVICE_RESTARTED");parent.put("cancelRequested",true);repo.updateRun(parent);for(var child:repo.childRuns(parent.get("id").toString()))if("WAITING".equals(child.get("status"))||"SYNC".equals(child.get("provider"))&&!exists(child.get("id").toString())){child.put("status","SKIPPED");child.put("errorCode","SERVICE_RESTARTED");child.put("finishedAt",ObjectService.now());repo.updateRun(child);}}
         }
         startClock();
     }

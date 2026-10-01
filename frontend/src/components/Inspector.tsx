@@ -1,7 +1,7 @@
 import TaskScheduleEditor from "./TaskScheduleEditor";
 import ScheduleEditor from "./ScheduleEditor";
 import ScheduleParameterEditor from "./ScheduleParameterEditor";
-import type { TaskRelease, TaskScheduleDraft, ObjectVersion, Run, StudioObject } from "../types";
+import type { TaskRelease, SchedulingDraft, SchedulingKind, ObjectVersion, Run, StudioObject } from "../types";
 import { useEffect, useState } from "react";
 import { Alert, App, Button, Collapse, Empty, Form, Input, InputNumber, Modal, Select, Space, Spin, Tag } from "antd";
 import { DiffEditor } from "@monaco-editor/react";
@@ -19,10 +19,11 @@ interface InspectorProps {
   objects: StudioObject[];
   onRun: (run: Run) => void;
   onSaveObject: () => Promise<boolean>;
-  scheduleRevision: number; scheduleDraft?: TaskScheduleDraft; onScheduleDraft: (draft?: TaskScheduleDraft) => void; onPublishTask: () => Promise<TaskRelease | undefined>;
+  scheduleRevision: number; scheduleDraft?: SchedulingDraft; onScheduleDraft: (draft?: SchedulingDraft) => void; onPublishTask: () => Promise<TaskRelease | undefined>;
+  onViewInstances: (kind: SchedulingKind, scheduleId: string) => void;
 }
 const dateLabel = (value: string) => value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "—";
-export default function Inspector({ object, section, onChange, onRestored, objects, onRun, onSaveObject, scheduleRevision, scheduleDraft, onScheduleDraft, onPublishTask }: InspectorProps) {
+export default function Inspector({ object, section, onChange, onRestored, objects, onRun, onSaveObject, scheduleRevision, scheduleDraft, onScheduleDraft, onPublishTask, onViewInstances }: InspectorProps) {
   const { message, modal } = App.useApp();
   const [versions, setVersions] = useState<ObjectVersion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,8 +43,8 @@ export default function Inspector({ object, section, onChange, onRestored, objec
     onOk: async () => { try { onRestored(await api.restoreVersion(object.id, version.id, object.version)); } catch (e) { message.error((e as Error).message); throw e; } },
   });
   return (<div className="studio-inspector">
-      {section === "schedule" && run.provider === "WORKFLOW" && <ScheduleEditor key={object.id} object={object} onObjectChange={onChange} onSaveObject={onSaveObject} onRun={onRun} />}
-      {section === "schedule" && isRealTask(object) && <TaskScheduleEditor key={`${object.id}/${scheduleRevision}`} object={object} objects={objects} onObjectChange={onChange} onSaveObject={onSaveObject} draft={scheduleDraft} onDraftChange={onScheduleDraft} onRun={onRun} onPublish={onPublishTask} />}
+      {section === "schedule" && run.provider === "WORKFLOW" && <ScheduleEditor key={`${object.id}/${scheduleRevision}`} object={object} onObjectChange={onChange} onSaveObject={onSaveObject} onRun={onRun} draft={scheduleDraft && "workflowId" in scheduleDraft.input ? scheduleDraft as import("../types").WorkflowScheduleDraft : undefined} onDraftChange={onScheduleDraft} onViewInstances={id=>onViewInstances("WORKFLOW",id)} />}
+      {section === "schedule" && isRealTask(object) && <TaskScheduleEditor key={`${object.id}/${scheduleRevision}`} object={object} objects={objects} onObjectChange={onChange} onSaveObject={onSaveObject} draft={scheduleDraft && "taskId" in scheduleDraft.input ? scheduleDraft as import("../types").TaskScheduleDraft : undefined} onDraftChange={onScheduleDraft} onRun={onRun} onPublish={onPublishTask} onViewInstances={id=>onViewInstances("TASK",id)} />}
       {section === "schedule" && run.provider !== "WORKFLOW" && !isRealTask(object) && (
         <Form layout="vertical" size="small">
           <ScheduleParameterEditor key={object.id} object={object} onChange={onChange} />

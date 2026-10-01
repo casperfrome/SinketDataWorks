@@ -20,7 +20,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Service
 public class WorkflowService {
     public record NodeSnapshot(String graphNodeId,StudioObject object) {}
-    public record Bundle(int schemaVersion,StudioObject workflow,List<NodeSnapshot> nodes,List<Map<String,Object>> datasourceBindings) {}
+    public record Bundle(int schemaVersion,StudioObject workflow,List<NodeSnapshot> nodes,List<Map<String,Object>> datasourceBindings,Map<String,List<Map<String,Object>>> dependencyBindings) {
+        public Bundle(int schemaVersion,StudioObject workflow,List<NodeSnapshot> nodes,List<Map<String,Object>> datasourceBindings){this(schemaVersion,workflow,nodes,datasourceBindings,null);}
+    }
     private record Plan(Bundle bundle,Map<String,MysqlExecutionProvider.PreparedQuery> queries,Map<String,InventoryExecutionService.PreparedStage> stages,Map<String,SyncExecutionService.Prepared> syncs) {}
     private static final Set<String> PENDING=Set.of("WAITING","QUEUED","RUNNING","RECOVERING");
     private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(WorkflowService.class);
@@ -35,6 +37,7 @@ public class WorkflowService {
     private final JsonCodec json;
     private final TransactionTemplate transactions;
     private final int maxNodes,maxActive;
+    @Value("${studio.workflow.parallelism:2}") private int parallelism=2;
     private final Map<String,Context> active=new ConcurrentHashMap<>();
     private final ScheduledExecutorService coordinator=Executors.newSingleThreadScheduledExecutor(r->new Thread(r,"workflow-coordinator"));
     private boolean closing;
@@ -90,7 +93,10 @@ public class WorkflowService {
         Map<String,MysqlExecutionProvider.PreparedQuery> queries=new LinkedHashMap<>();
         Map<String,InventoryExecutionService.PreparedStage> stages=new LinkedHashMap<>();
         Map<String,SyncExecutionService.Prepared> syncs=new LinkedHashMap<>();
+        Map<String,List<Map<String,Object>>> dependencies=new LinkedHashMap<>();
         for(NodeSnapshot node:bundle.nodes()) {
+            var captured=bundle.dependencyBindings()==null?null:bundle.dependencyBindings().get(node.graphNodeId());
+            dependencies.put(node.graphNodeId(),captured==null?tasks.dependencyBindings(node.object().id()):captured.stream().map(d->Map.copyOf(d)).toList());
             ScheduleParameters.attach(new LinkedHashMap<>(),node.object(),Map.of(),ScheduleParameters.definitions(bundle.workflow()));
             if(SyncExecutionService.isSync(node.object())) {
                 var p=sync.prepare(node.object(),ScheduleParameters.definitions(bundle.workflow()));if(released)TaskService.verifyBindings(bundle.datasourceBindings(),p.bindings());syncs.put(node.graphNodeId(),p);connections.put(p.source().id(),p.source());connections.put(p.target().id(),p.target());continue;
@@ -117,7 +123,7 @@ public class WorkflowService {
             var ids=new HashMap<String,String>();stages.forEach((id,stage)->ids.put(stage.target(),id));
             for(int i=0;i<2;i++){String from=ids.get(InventorySql.TARGETS.get(i)),to=ids.get(InventorySql.TARGETS.get(i+1));if(graphItems(bundle.workflow(),"edges").stream().noneMatch(e->from.equals(e.get("source"))&&to.equals(e.get("target"))))throw StudioException.bad("INVALID_INVENTORY_DEPENDENCY","请按 DWD → DWS → ADS 连接库存节点");}
         }
-        return new Plan(new Bundle(!syncs.isEmpty()?4:independent?3:stages.isEmpty()?1:2,bundle.workflow(),bundle.nodes(),connections.values().stream().map(DatasourceService.ConnectionSpec::publicView).toList()),queries,stages,syncs);
+        return new Plan(new Bundle(!syncs.isEmpty()?4:independent?3:stages.isEmpty()?1:2,bundle.workflow(),bundle.nodes(),connections.values().stream().map(DatasourceService.ConnectionSpec::publicView).toList(),dependencies),queries,stages,syncs);
     }
     public Map<String,Object> publish(String id,Integer expected,Map<String,Object> expectedNodes,String note) {
         if(note.length()>4000) throw StudioException.bad("INVALID_RELEASE_NOTE","发布说明最多 4000 个字符");
@@ -167,7 +173,7 @@ public class WorkflowService {
         parent.put("executionSource",release==null?"DEVELOPMENT":"RELEASE");parent.put("nodeCount",plan.bundle().nodes().size());
         parent.put("logs",List.of("[工作流] 完整图及所有节点快照已保存。失败下游跳过，独立分支继续。"));parent.put("columns",List.of());parent.put("rows",List.of());
         if(release!=null) {parent.put("releaseId",release.get("id"));parent.put("releaseNo",release.get("releaseNo"));}
-        for(String key:List.of("triggerType","scheduleId","triggerId","scheduledAt","attempt","retryOfRunId"))if(options.containsKey(key))parent.put(key,options.get(key));
+        for(String key:List.of("triggerType","scheduleId","triggerId","scheduledAt","attempt","retryOfRunId","scheduleSnapshot","dependencySlots"))if(options.containsKey(key))parent.put(key,options.get(key));
         ScheduleParameters.attach(parent,workflow,options,List.of());
         parent.putIfAbsent("triggerType","MANUAL");parent.putIfAbsent("attempt",1);
         if("SCHEDULED".equals(parent.get("triggerType")))parent.put("mode","SCHEDULED");
@@ -176,23 +182,26 @@ public class WorkflowService {
             var stage=plan.stages().values().iterator().next();var parameters=inventory.parameters(options,parent.get("id").toString());
             context.batch=inventory.begin(parent.get("id").toString(),stage.source(),parameters);
             parent.put("materialization",true);parent.put("parameters",parameters);parent.put("businessDate",parameters.get("bizdate"));parent.put("sourceCutoffAt",parameters.get("source_cutoff"));parent.put("buildId",parent.get("id"));parent.put("dataSource",stage.source().publicView());parent.put("publicationStatus","STAGING");
-        }else {if(options.containsKey("businessDate"))parent.put("businessDate",options.get("businessDate"));if(options.containsKey("sourceCutoffAt"))parent.put("sourceCutoffAt",options.get("sourceCutoffAt"));}
-        if(plan.bundle().schemaVersion()>=3){var params=inventory.parameters(options,parent.get("id").toString());parent.put("businessDate",params.get("bizdate"));parent.put("sourceCutoffAt",params.get("source_cutoff"));}
+        }else {var params=inventory.parameters(options,parent.get("id").toString());parent.put("businessDate",params.get("bizdate"));parent.put("sourceCutoffAt",params.get("source_cutoff"));}
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){
             @Override public void afterCommit(){active.put(parent.get("id").toString(),context);}
             @Override public void afterCompletion(int status){if(status!=STATUS_COMMITTED)inventory.release(context.batch);}
         });
         repo.insertRun(parent,workflow);
+        Map<String,Map<String,Object>> nodeParameters=new LinkedHashMap<>();
         for(var node:plan.bundle().nodes()) {
             var child=plan.syncs().containsKey(node.graphNodeId())?sync.newRun(plan.syncs().get(node.graphNodeId()),"MANUAL"):plan.stages().containsKey(node.graphNodeId())?inventory.newRun(plan.stages().get(node.graphNodeId())):mysql.newRun(plan.queries().get(node.graphNodeId()),"MANUAL");child.put("parentRunId",parent.get("id"));child.put("graphNodeId",node.graphNodeId());child.put("status","WAITING");child.put("executionSource",parent.get("executionSource"));child.put("mode",parent.get("mode"));
             for(String key:List.of("parameters","businessDate","sourceCutoffAt","buildId","triggerType","scheduleId","triggerId","scheduledAt","attempt"))if(parent.containsKey(key))child.put(key,parent.get(key));
             var timeContext=new LinkedHashMap<String,Object>();for(String key:List.of("businessDate","scheduledAt","timezone"))timeContext.put(key,parent.get(key));
+            if(options.get("nodeScheduleParameters") instanceof Map<?,?> fixed&&fixed.get(node.graphNodeId()) instanceof Map<?,?> values)timeContext.put("scheduleParameters",values);
             ScheduleParameters.attach(child,node.object(),timeContext,ScheduleParameters.definitions(workflow));
+            nodeParameters.put(node.graphNodeId(),new LinkedHashMap<>((Map<String,Object>)child.get("scheduleParameters")));
             var internal=new LinkedHashMap<String,Object>((Map<String,Object>)child.getOrDefault("parameters",Map.of()));internal.put("bizdate",parent.get("businessDate"));child.put("parameters",internal);
             if(release!=null) {child.put("releaseId",release.get("id"));child.put("releaseNo",release.get("releaseNo"));}
             child.put("logs",List.of("[工作流] 执行快照已固定，等待依赖。"));repo.insertRun(child,node.object());
             context.children.put(node.graphNodeId(),child.get("id").toString());context.upstream.put(node.graphNodeId(),new ArrayList<>());
         }
+        parent.put("nodeScheduleParameters",nodeParameters);repo.updateRun(parent);
         for(var edge:graphItems(workflow,"edges")) context.upstream.get(edge.get("target").toString()).add(edge.get("source").toString());
         return context;
     }
@@ -211,7 +220,8 @@ public class WorkflowService {
         String id=context.parent.get("id").toString();var parent=repo.run(id).orElseThrow();
         if(!PENDING.contains(parent.get("status"))) {if(context.batch==null||!inventory.busy(context.batch)){inventory.release(context.batch);active.remove(id,context);}return;}
         if(Boolean.TRUE.equals(parent.get("cancelRequested"))){
-            if(repo.childRuns(id).stream().noneMatch(r->PENDING.contains(r.get("status")))){finish(parent,"CANCELLED","WORKFLOW_CANCELLED","工作流已停止；已提交数据保留。");active.remove(id,context);}return;
+            var cancelledChildren=repo.childRuns(id);
+            if(cancelledChildren.stream().noneMatch(r->PENDING.contains(r.get("status")))&&(context.batch==null||!inventory.busy(context.batch))){boolean unknown=cancelledChildren.stream().anyMatch(WorkflowService::unknownCommit);if(unknown)parent.put("commitUnknown",true);finish(parent,unknown?"FAILED":"CANCELLED",unknown?"COMMIT_UNKNOWN":"WORKFLOW_CANCELLED",unknown?"执行已停止，部分写入提交结果未知，请核实业务数据。":"工作流已停止；已提交数据保留。");inventory.release(context.batch);active.remove(id,context);}return;
         }
         if("QUEUED".equals(parent.get("status"))) {parent.put("status","RUNNING");parent.put("startedAt",ObjectService.now());if(!repo.transitionRun(parent,"QUEUED"))return;}
         Map<String,Map<String,Object>> children=new LinkedHashMap<>();repo.childRuns(id).forEach(r->children.put(r.get("graphNodeId").toString(),r));
@@ -225,14 +235,15 @@ public class WorkflowService {
                 }
             }
         } while(changed);
-        if(children.values().stream().anyMatch(r->Set.of("QUEUED","RUNNING","RECOVERING").contains(r.get("status"))))return;
+        int running=(int)children.values().stream().filter(r->Set.of("QUEUED","RUNNING","RECOVERING").contains(r.get("status"))).count();
+        int limit=context.batch!=null?1:Math.max(1,Math.min(8,parallelism));
         for(String node:context.children.keySet()) {
+            if(running>=limit)break;
             var child=children.get(node);
             if("WAITING".equals(child.get("status"))&&context.upstream.get(node).stream().allMatch(u->"SUCCESS".equals(children.get(u).get("status")))) {
-                child.put("status","QUEUED");if(!repo.transitionRun(child,"WAITING"))return;
-                try {if(context.plan.bundle().schemaVersion()>=3){var snapshot=context.plan.bundle().nodes().stream().filter(n->n.graphNodeId().equals(node)).findFirst().orElseThrow().object();tasks.startWorkflowNode(snapshot,child,context.upstream.get(node).stream().map(children::get).toList(),context.plan.syncs().get(node));}else if(context.batch==null)mysql.enqueueExisting(child.get("id").toString(),context.plan.queries().get(node));else inventory.enqueue(child.get("id").toString(),context.plan.stages().get(node),context.batch);}
-                catch(RuntimeException e) {var latest=repo.run(child.get("id").toString()).orElseThrow();finish(latest,"FAILED",e instanceof StudioException se?se.code():"SUBMISSION_FAILED","节点提交失败。");}
-                return;
+                try {if(context.batch==null){var snapshot=context.plan.bundle().nodes().stream().filter(n->n.graphNodeId().equals(node)).findFirst().orElseThrow().object();tasks.startWorkflowNode(snapshot,child,context.upstream.get(node).stream().map(children::get).toList(),context.plan.queries().get(node),context.plan.stages().get(node),context.plan.syncs().get(node),context.plan.bundle().dependencyBindings().get(node));}else{transactions.executeWithoutResult(t->{repo.lockWorkspace(parent.get("workspaceId").toString());if(repo.hasActiveTaskRun(parent.get("workspaceId").toString(),child.get("objectId").toString(),child.get("id").toString()))throw StudioException.conflict("TASK_OVERLAP","当前任务仍在运行");child.put("status","QUEUED");if(!repo.transitionRun(child,"WAITING"))return;TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){@Override public void afterCommit(){inventory.enqueue(child.get("id").toString(),context.plan.stages().get(node),context.batch);}});});}}
+                catch(RuntimeException e) {var latest=repo.run(child.get("id").toString()).orElseThrow();String code=e instanceof StudioException se?se.code():"SUBMISSION_FAILED";if(Set.of("TASK_OVERLAP","MATERIALIZATION_BUSY","RECOVERY_REQUIRED","QUEUE_FULL").contains(code)){latest.put("waitingReason",code);repo.transitionRun(latest,"WAITING");}else finish(latest,"FAILED",code,"节点提交失败。");}
+                var latest=repo.run(child.get("id").toString()).orElseThrow();children.put(node,latest);if(Set.of("QUEUED","RUNNING","RECOVERING").contains(latest.get("status")))running++;
             }
         }
         if(children.values().stream().noneMatch(r->PENDING.contains(r.get("status")))) {
@@ -243,7 +254,8 @@ public class WorkflowService {
                 if(success){try{inventory.publish(context.batch);parent.put("publicationStatus","PUBLISHED");}catch(java.sql.SQLException e){parent.put("publicationStatus","RECOVERING");parent.put("logs",List.of("[库存] 正在核实最终事务提交结果，暂不允许冲突写入。"));repo.transitionRun(parent,"RUNNING");return;}catch(RuntimeException e){success=false;parent.put("errorCode",e instanceof StudioException se?se.code():"PUBLISH_FAILED");}}
                 if(!success)parent.put("publicationStatus","NOT_PUBLISHED");
             }
-            String error=children.values().stream().filter(r->"FAILED".equals(r.get("status"))).map(r->Objects.toString(r.get("errorCode"),"WORKFLOW_FAILED")).findFirst().orElse(Objects.toString(parent.get("errorCode"),"WORKFLOW_FAILED"));
+            boolean unknown=children.values().stream().anyMatch(WorkflowService::unknownCommit);if(unknown)parent.put("commitUnknown",true);
+            String error=unknown?"COMMIT_UNKNOWN":children.values().stream().filter(r->"FAILED".equals(r.get("status"))).map(r->Objects.toString(r.get("errorCode"),"WORKFLOW_FAILED")).findFirst().orElse(Objects.toString(parent.get("errorCode"),"WORKFLOW_FAILED"));
             finish(parent,success?"SUCCESS":"FAILED",success?null:error,success?(context.batch==null?"全部节点执行成功。":"库存三层数据已在一个事务内发布。"):"工作流结束，部分节点失败或跳过。");inventory.release(context.batch);active.remove(id,context);
         }
     }
@@ -253,12 +265,20 @@ public class WorkflowService {
         run.put("elapsedMs",Duration.between(Instant.parse(run.getOrDefault("startedAt",run.get("createdAt")).toString()),Instant.now()).toMillis());
         if(code!=null)run.put("errorCode",code);List<Object> logs=new ArrayList<>((List<?>)run.getOrDefault("logs",List.of()));logs.add(message);run.put("logs",logs);repo.transitionRun(run,expected);
     }
+    private static boolean unknownCommit(Map<String,Object> run){return Boolean.TRUE.equals(run.get("commitUnknown"))||"COMMIT_UNKNOWN".equals(run.get("errorCode"));}
     public synchronized Map<String,Object> stop(String id) {
         var context=active.get(id);
-        if(context!=null) {synchronized(context) {if(context.batch!=null&&context.batch.committed){advance(context);}else{if(context.batch!=null&&context.batch.recovering)throw StudioException.conflict("RECOVERY_REQUIRED","正在核实提交状态，请等待结果");cancel(id);if(context.batch==null&&!Boolean.TRUE.equals(context.parent.get("containsSync")))active.remove(id,context);}}}
+        if(context!=null) {synchronized(context) {if(context.batch!=null&&context.batch.committed){advance(context);}else{if(context.batch!=null&&context.batch.recovering)throw StudioException.conflict("RECOVERY_REQUIRED","正在核实提交状态，请等待结果");cancel(id);advance(context);}}}
         else cancel(id);
         return repo.run(id).orElseThrow();
     }
+    public boolean pauseQueuedRun(String id){return withdrawQueued(id,"SCHEDULE_PAUSED");}
+    public boolean withdrawQueued(String id,String reason){return Boolean.TRUE.equals(transactions.execute(t->{
+        var parent=repo.run(id).orElseThrow();repo.lockWorkspace(parent.get("workspaceId").toString());parent=repo.run(id).orElseThrow();if(!"QUEUED".equals(parent.get("status"))||("SCHEDULE_PAUSED".equals(reason)?!"SCHEDULED".equals(parent.get("triggerType")):parent.get("triggerId")==null))return false;
+        parent.put("status","CANCELLED");parent.put("errorCode",reason);parent.put("finishedAt",ObjectService.now());parent.put("elapsedMs",0);parent.put("logs",List.of("[调度] 尚未执行的工作流已撤回，将从实例状态重新排队。"));if(!repo.transitionRun(parent,"QUEUED"))return false;
+        for(var child:repo.childRuns(id))if("WAITING".equals(child.get("status")))finish(child,"CANCELLED",reason,"尚未执行的节点已撤回。");
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization(){@Override public void afterCommit(){var context=active.remove(id);if(context!=null)inventory.release(context.batch);}});return true;
+    }));}
     private void cancel(String id) {
         var parent=repo.run(id).orElseThrow(()->StudioException.missing("运行不存在"));if(!PENDING.contains(parent.get("status")))return;
         var context=active.get(id);if(context!=null&&context.batch!=null){inventory.cancel(context.batch);parent.put("publicationStatus","NOT_PUBLISHED");}
@@ -266,8 +286,7 @@ public class WorkflowService {
             if("WAITING".equals(child.get("status")))finish(child,"CANCELLED","WORKFLOW_CANCELLED","用户已停止整个工作流。");
             else if(PENDING.contains(child.get("status"))){if(context!=null&&context.batch!=null)inventory.stop(child.get("id").toString());else if(Boolean.TRUE.equals(child.get("taskExecution"))&&Boolean.TRUE.equals(child.get("materialization")))tasks.stop(child.get("id").toString());else if("SYNC".equals(child.get("provider")))sync.stop(child.get("id").toString());else mysql.stop(child.get("id").toString());}
         }
-        if(Boolean.TRUE.equals(parent.get("containsSync"))&&repo.childRuns(id).stream().anyMatch(r->PENDING.contains(r.get("status")))){parent.put("cancelRequested",true);repo.updateRun(parent);return;}
-        finish(parent,"CANCELLED","WORKFLOW_CANCELLED","用户已停止整个工作流。");
+        parent.put("cancelRequested",true);repo.transitionRun(parent,parent.get("status").toString());
     }
     @PreDestroy public synchronized void shutdown() {closing=true;coordinator.shutdownNow();active.clear();}
 }

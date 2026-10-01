@@ -61,7 +61,7 @@ public class RunService implements ExecutionProvider {
         if(isSql(snapshot)) {
             if(InventoryExecutionService.materializes(snapshot))throw StudioException.bad("RUN_INVENTORY_WORKFLOW","请运行所属库存工作流；三层结果将一起发布");
             if(fail) throw StudioException.bad("SIMULATION_ONLY","真实查询不支持模拟失败选项");
-            return mysql.start(snapshot,mode,false);
+            return tasks.startDevelopment(snapshot,Map.of());
         }
         return simulation.start(snapshot,mode,fail);
     }
