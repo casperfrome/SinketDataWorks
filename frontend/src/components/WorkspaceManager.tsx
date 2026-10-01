@@ -32,7 +32,7 @@ export default function WorkspaceManager({ workspaces, currentId, onClose, onCre
       setCreating(false);
       setSearch("");
       form.resetFields();
-      message.success("工作空间已创建，可进入数据开发添加文件和数据源");
+      message.success("工作空间已创建，可进入离线或实时数据开发添加任务和数据源");
     } catch (error) {
       message.error(error instanceof Error ? error.message : "创建工作空间失败");
     } finally {
@@ -73,7 +73,7 @@ export default function WorkspaceManager({ workspaces, currentId, onClose, onCre
             { title: "工作空间", dataIndex: "name", render: (_, workspace) => <div className="workspace-list-name"><LayoutPanelLeft size={16} /><div><strong>{workspace.name}</strong><small>{workspace.code}</small></div></div> },
             { title: "类型", width: 110, render: (_, workspace) => workspace.type === "DEFAULT" ? <Tag>默认空间</Tag> : <Tag color="blue">自建空间</Tag> },
             { title: "环境", dataIndex: "region", width: 80 },
-            { title: "操作", width: 150, render: (_, workspace) => workspace.id === currentId ? <Tag color="green">当前空间</Tag> : <Button type="link" onClick={() => onEnter(workspace.id)}>进入数据开发</Button> },
+            { title: "操作", width: 150, render: (_, workspace) => workspace.id === currentId ? <Tag color="green">当前空间</Tag> : <Button type="link" onClick={() => onEnter(workspace.id)}>进入离线数据开发</Button> },
           ]} />
       </>}
     </Modal>

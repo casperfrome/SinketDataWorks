@@ -185,7 +185,7 @@ export interface Preferences {
   wordWrap?: boolean;
   [key: string]: unknown;
 }
-export type Activity = "development" | "scheduling" | "datasources" | "recycle";
+export type Activity = "development" | "realtime" | "scheduling" | "datasources" | "recycle";
 export type SchedulingKind = "TASK" | "WORKFLOW";
 export interface SchedulingTask {
   kind: SchedulingKind; objectId: string; scheduleId?: string; name: string; nodeType?: string;

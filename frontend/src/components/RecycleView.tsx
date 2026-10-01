@@ -20,7 +20,7 @@ export default function RecycleView({ workspaceId, onRestored }: { workspaceId: 
   const restore = async () => {
     if (!target || !name.trim()) return;
     setRestoring(true);
-    try { await api.restore(target.id, name.trim()); await onRestored(); setTarget(null); setRevision(n => n + 1); message.success("已恢复到数据开发"); }
+    try { await api.restore(target.id, name.trim()); await onRestored(); setTarget(null); setRevision(n => n + 1); message.success("已恢复到离线数据开发"); }
     catch (e) { message.error((e as Error).message); }
     finally { setRestoring(false); }
   };

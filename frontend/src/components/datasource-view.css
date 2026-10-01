@@ -1,0 +1,30 @@
+.datasource-catalog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0 12px;
+}
+
+.datasource-catalog-toolbar .ant-input-search {
+  width: 300px;
+  max-width: 100%;
+}
+
+.datasource-catalog-toolbar .ant-select {
+  min-width: 130px;
+}
+
+.source-content > .ant-alert + .ant-alert {
+  margin-top: 10px;
+}
+
+.datasource-kafka-notice {
+  margin-bottom: 20px;
+}
+
+@media (max-width: 640px) {
+  .datasource-catalog-toolbar .ant-input-search {
+    width: 100%;
+  }
+}

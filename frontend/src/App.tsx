@@ -87,6 +87,7 @@ import {
   LayoutPanelLeft,
   Package,
   Cloud,
+  Activity as ActivityIcon,
 } from "lucide-react";
 import { format as formatSQL } from "sql-formatter";
 import { api, ApiError } from "./api";
@@ -105,6 +106,7 @@ import type {
 import StudioEditor from "./components/StudioEditor";
 import Inspector from "./components/Inspector";
 import DatasourceView from "./components/DatasourceView";
+import RealtimeWorkbench from "./realtime/RealtimeWorkbench";
 import WorkspaceManager from "./components/WorkspaceManager";
 import RunDetails from "./components/RunDetails";
 import WorkflowReleases from "./components/WorkflowReleases";
@@ -127,7 +129,8 @@ interface NodeRunRequest {
 }
 
 const activities: { id: Activity; label: string; icon: typeof CodeXml }[] = [
-  { id: "development", label: "数据开发", icon: CodeXml },
+  { id: "development", label: "离线数据开发", icon: CodeXml },
+  { id: "realtime", label: "实时数据开发", icon: ActivityIcon },
   { id: "scheduling", label: "调度运维", icon: GitBranch },
   { id: "datasources", label: "数据源", icon: Database },
   { id: "recycle", label: "回收站", icon: Trash2 },
@@ -592,7 +595,7 @@ function Studio({
         setSelectedId("");
         setFocusFolder(null);
         setResultId(null);
-        setActivity("development");
+        setActivity(currentActivity => currentActivity === "realtime" ? "realtime" : "development");
         setExpanded(os.filter((o) => o.kind === "FOLDER").map((o) => o.id));
       } catch (e) {
         message.error(errorText(e));
@@ -601,7 +604,7 @@ function Studio({
     if (Object.keys(drafts).length || Object.keys(scheduleDrafts).length)
       modal.confirm({
         title: "切换工作空间",
-        content: "当前工作空间有未保存的内容，切换会丢弃这些修改。",
+        content: "当前工作空间有未保存的离线内容，切换会丢弃这些离线修改。实时草稿保留在各自工作空间。",
         okText: "丢弃并切换",
         onOk: perform,
       });
@@ -1016,7 +1019,7 @@ function Studio({
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (nodeRunDialog && (
+      if (activity === "development" && nodeRunDialog && (
         e.key === "F8" ||
         ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") ||
         (e.altKey && e.shiftKey && e.key.toLowerCase() === "f")
@@ -1024,19 +1027,19 @@ function Studio({
         e.preventDefault();
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      if (activity === "development" && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void saveCurrent();
       }
-      if (e.key === "F8") {
+      if (activity === "development" && e.key === "F8") {
         e.preventDefault();
         if (!e.shiftKey || active?.kind === "NODE") void runCurrent(false, e.shiftKey ? "CUSTOM" : "NORMAL");
       }
-      if (e.key === "F9") {
+      if (activity === "development" && e.key === "F9") {
         e.preventDefault();
         void stopCurrent();
       }
-      if (e.altKey && e.shiftKey && e.key.toLowerCase() === "f") {
+      if (activity === "development" && e.altKey && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         formatCurrent();
       }
@@ -1051,6 +1054,7 @@ function Studio({
       }
       if (
         e.ctrlKey &&
+        activity === "development" &&
         e.key.toLowerCase() === "p" &&
         !["INPUT", "TEXTAREA"].includes(target.tagName)
       ) {
@@ -1173,7 +1177,7 @@ function Studio({
           <Info size={13} />
           <span>
             【本地工作空间】SinketDataWorks
-            开发环境已就绪。代码、配置与版本保存在本地 MySQL。
+            离线代码与版本保存在本地 MySQL，实时配置保存在当前浏览器。
           </span>
           <button onClick={() => setHelp(true)}>使用说明</button>
           <span className="announcement-spacer" />
@@ -1310,7 +1314,7 @@ function Studio({
             </Tooltip>
           </nav>
         )}
-        {!zen && sidebarVisible && (
+        {!zen && sidebarVisible && activity !== "realtime" && (
           <>
             <aside className="explorer" style={{ width: sidebarWidth }}>
               <div className="pane-heading">
@@ -1516,7 +1520,7 @@ function Studio({
                   </div>
                 </>
               ) : (
-                <div className="secondary-explorer"><div className="section-summary"><span className="small-eyebrow">{workspace?.name}</span><h3>{activities.find(a => a.id === activity)?.label}</h3></div><button className="side-view-button" onClick={() => setActivity("development")}><CodeXml size={15} />返回数据开发</button></div>
+                <div className="secondary-explorer"><div className="section-summary"><span className="small-eyebrow">{workspace?.name}</span><h3>{activities.find(a => a.id === activity)?.label}</h3></div><button className="side-view-button" onClick={() => setActivity("development")}><CodeXml size={15} />返回离线数据开发</button></div>
               )}
             </aside>
             <div
@@ -1528,6 +1532,7 @@ function Studio({
           </>
         )}
         <main className="workbench-main">
+          {activity === "realtime" ? <RealtimeWorkbench key={workspaceId} workspaceId={workspaceId} theme={mode} fontSize={prefs.editorFontSize || 13} wordWrap={!!prefs.wordWrap} sidebarVisible={sidebarVisible} sidebarWidth={sidebarWidth} onManageDatasources={() => setActivity("datasources")} /> : <>
           <div className="editor-tabs" role="tablist" aria-label="编辑文件">
             {activity !== "development" && (
               <button
@@ -1943,9 +1948,10 @@ function Studio({
               </div>
             </section>
           )}
+          </>}
         </main>
       </div>
-      <footer className="status-bar">
+      {activity !== "realtime" && <footer className="status-bar">
         <span>
           <X size={11} />0 <TriangleAlert size={11} />0
         </span>
@@ -1970,7 +1976,7 @@ function Studio({
           icon={Bell}
           onClick={() => setNotificationOpen(true)}
         />
-      </footer>
+      </footer>}
 
       {context && (
         <div
@@ -2248,16 +2254,17 @@ function Studio({
           <Tag color="blue">SinketDataWorks · 本地项目</Tag>
           <h3>从一个开发节点开始</h3>
           <p>
-            在项目目录选择节点类型并新建文件。MySQL、Doris 节点可执行 SQL；数据集成节点选择来源和目标后可在 MySQL 与 Doris 之间批量传输。调度参数在右侧配置，发布后可选择版本并应用到调度。
+            在离线数据开发的项目目录选择节点类型并新建文件。MySQL、Doris 节点可执行 SQL；数据集成节点选择来源和目标后可在 MySQL 与 Doris 之间批量传输。调度参数在右侧配置，发布后可选择版本并应用到调度。
           </p>
+          <p>实时数据开发拥有独立的任务、Source / Sink 配置、Flink SQL 编辑器与实时运维。先在数据源入口配置 Kafka 或数据库连接，再配置并发布实时任务。当前实时内容保存到浏览器，运行与指标为前端模拟。</p>
           <table>
             <tbody>
               {[
                 ["Ctrl + S", "保存当前文件"],
-                ["F8 / F9", "运行 / 停止当前节点"],
+                ["F8 / F9", "离线运行 / 停止；实时运维 / 停止模拟作业"],
                 ["Shift + F8", "带参运行当前节点"],
                 ["Shift + Alt + F", "格式化 SQL"],
-                ["Ctrl + Shift + E", "打开数据开发"],
+                ["Ctrl + Shift + E", "打开离线数据开发"],
                 ["右键目录或文件", "重命名、移动、复制、收藏、删除"],
                 ["版本面板", "查看历史、对比代码、恢复版本"],
               ].map(([a, b]) => (
@@ -2271,7 +2278,7 @@ function Studio({
             </tbody>
           </table>
           <p>
-            元数据存储于
+            离线元数据存储于
             MySQL。MySQL、Doris 节点支持真实 SQL 读写与表结构操作；数据集成支持 MySQL ↔ Doris 批量传输、发布与调度。
           </p>
         </div>
@@ -2399,7 +2406,7 @@ function Studio({
         <Alert
           type="success"
           title="本地工作空间已连接"
-          description="元数据使用 MySQL 持久化。"
+          description="离线元数据使用 MySQL 持久化，实时配置保存到当前浏览器。"
           showIcon
         />
         <div className="notification-list">

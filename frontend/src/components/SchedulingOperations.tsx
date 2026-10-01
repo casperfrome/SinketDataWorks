@@ -132,7 +132,7 @@ export default function SchedulingOperations({ workspaceId, selection, onConfigu
       </>}
       <span className="operations-live">每 2 秒更新</span>
     </Space>
-    {tab === "tasks" ? <Table<SchedulingTask> size="small" rowKey={row => `${row.kind}:${row.objectId}`} loading={loading} dataSource={tasks} scroll={{ x: 1000 }} pagination={{ current: page, pageSize: 20, total: taskTotal, showSizeChanger: false, onChange: setPage }} locale={{ emptyText: <Empty description="暂无可调度任务，在数据开发中创建 SQL、同步任务或工作流。" /> }} columns={[
+    {tab === "tasks" ? <Table<SchedulingTask> size="small" rowKey={row => `${row.kind}:${row.objectId}`} loading={loading} dataSource={tasks} scroll={{ x: 1000 }} pagination={{ current: page, pageSize: 20, total: taskTotal, showSizeChanger: false, onChange: setPage }} locale={{ emptyText: <Empty description="暂无可调度任务，在离线数据开发中创建 SQL、同步任务或工作流。" /> }} columns={[
       { title: "任务", dataIndex: "name", render: (name, task) => <Button type="link" onClick={() => onConfigure(task.objectId)}>{name}</Button> },
       { title: "类型", render: (_, task) => task.kind === "WORKFLOW" ? "工作流" : task.nodeType || "独立任务" },
       { title: "计划状态", render: (_, task) => <Tag color={task.enabled ? "green" : "default"}>{taskStateNames[task.status] || task.status}</Tag> },
